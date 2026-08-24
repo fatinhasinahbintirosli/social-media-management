@@ -48,28 +48,44 @@ export async function GET(request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     );
 
-    // 5. Simpan/Kemaskini senarai Pages dan Token ke dalam pangkalan data Supabase
+   // 5. Simpan/Kemaskini senarai Pages secara manual ke dalam pangkalan data Supabase
     for (const page of pages) {
-      const { error: dbError } = await supabase
+      // Semak sama ada page_id sudah wujud
+      const { data: existingPage } = await supabase
         .from('pages')
-        .upsert({
-          page_id: page.id,
-          page_name: page.name,
-          access_token: page.access_token,
-          is_active: true,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'page_id' });
+        .select('id')
+        .eq('page_id', page.id)
+        .maybeSingle();
 
-      if (dbError) {
-        console.error(`Ralat menyimpan page ${page.name}:`, dbError.message);
+      if (existingPage) {
+        // Jika sudah ada, kemaskini token
+        const { error: updateError } = await supabase
+          .from('pages')
+          .update({
+            page_name: page.name,
+            access_token: page.access_token,
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('page_id', page.id);
+
+        if (updateError) {
+          console.error(`Ralat kemaskini page ${page.name}:`, updateError.message);
+        }
+      } else {
+        // Jika belum ada, masukkan rekod baru
+        const { error: insertError } = await supabase
+          .from('pages')
+          .insert({
+            page_id: page.id,
+            page_name: page.name,
+            access_token: page.access_token,
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          });
+
+        if (insertError) {
+          console.error(`Ralat masukkan page baru ${page.name}:`, insertError.message);
+        }
       }
     }
-
-    // 6. Lencongkan (Redirect) semula pengguna ke Halaman Scheduler
-    return NextResponse.redirect(`${origin}/scheduler?status=success`);
-
-  } catch (err) {
-    console.error('Facebook Auth Callback Error:', err.message);
-    return NextResponse.redirect(`${origin}/scheduler?status=error&message=${encodeURIComponent(err.message)}`);
-  }
-}
