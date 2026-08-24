@@ -8,8 +8,9 @@ export default function SchedulerPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false); // Penanda sama ada mod Daftar atau Log Masuk
+  const [isSignUp, setIsSignUp] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [authMessage, setAuthMessage] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
   const [pages, setPages] = useState([]);
@@ -31,7 +32,6 @@ export default function SchedulerPage() {
   );
 
   useEffect(() => {
-    // Semak sesi login Supabase sedia ada
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         setIsAuthenticated(true);
@@ -65,10 +65,10 @@ export default function SchedulerPage() {
     e.preventDefault();
     setAuthLoading(true);
     setAuthError('');
+    setAuthMessage('');
 
     if (isSignUp) {
-      // Proses Daftar Akaun Baru
-      const { data, error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signUp({
         email: emailInput,
         password: passwordInput,
       });
@@ -76,25 +76,49 @@ export default function SchedulerPage() {
       if (error) {
         setAuthError(error.message);
       } else {
-        if (data?.session) {
-          setIsAuthenticated(true);
-        } else {
-          alert('Pendaftaran berjaya! Sila log masuk dengan emel dan kata laluan anda.');
-          setIsSignUp(false);
-        }
+        setAuthMessage('Pendaftaran berjaya! Sila semak emel anda (termasuk folder Spam/Junk) dan klik pautan pengesahan (Confirm your email) sebelum log masuk.');
+        setIsSignUp(false);
+        setPasswordInput('');
       }
     } else {
-      // Proses Log Masuk
       const { error } = await supabase.auth.signInWithPassword({
         email: emailInput,
         password: passwordInput,
       });
 
       if (error) {
-        setAuthError('Emel atau kata laluan salah!');
+        if (error.message.includes('Email not confirmed')) {
+          setAuthError('Emel anda belum disahkan. Sila semak pautan pengesahan di dalam emel anda, atau klik butang hantar semula di bawah.');
+        } else {
+          setAuthError('Emel atau kata laluan salah!');
+        }
       } else {
         setIsAuthenticated(true);
       }
+    }
+    setAuthLoading(false);
+  };
+
+  // Fungsi Baru: Hantar Semula Emel Pengesahan (Resend Confirmation)
+  const handleResendConfirmation = async () => {
+    if (!emailInput) {
+      setAuthError('Sila masukkan alamat emel anda di ruangan emel di atas terlebih dahulu.');
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError('');
+    setAuthMessage('');
+
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: emailInput,
+    });
+
+    if (error) {
+      setAuthError('Gagal menghantar semula emel: ' + error.message);
+    } else {
+      setAuthMessage('Emel pengesahan baharu telah berjaya dihantar ke ' + emailInput + '. Sila semak inbox atau folder spam anda.');
     }
     setAuthLoading(false);
   };
@@ -104,6 +128,8 @@ export default function SchedulerPage() {
     setIsAuthenticated(false);
     setEmailInput('');
     setPasswordInput('');
+    setAuthMessage('');
+    setAuthError('');
   };
 
   const handleProfileChange = (profileName) => {
@@ -202,11 +228,11 @@ export default function SchedulerPage() {
   // Jika belum log masuk, papar paparan Borang Log Masuk / Daftar Emel
   if (!isAuthenticated) {
     return (
-      <main style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif', background: '#f4f4f4' }}>
+      <main style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif', background: '#f4f4f4', padding: '20px' }}>
         <form onSubmit={handleAuthSubmit} style={{ background: '#fff', padding: '30px', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', width: '100%', maxWidth: '380px', textAlign: 'center' }}>
           <h2 style={{ marginBottom: '10px', color: '#111' }}>Max Baginda Trading</h2>
           <p style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
-            {isSignUp ? 'Daftar akaun baharu untuk mengakses Scheduler.' : 'Sila log masuk menggunakan emel dan kata laluan.'}
+            {isSignUp ? 'Daftar akaun baharu (Pengesahan emel diperlukan).' : 'Sila log masuk menggunakan emel dan kata laluan.'}
           </p>
           
           <input 
@@ -223,21 +249,34 @@ export default function SchedulerPage() {
             placeholder="Kata Laluan..." 
             value={passwordInput}
             onChange={(e) => setPasswordInput(e.target.value)}
-            required
+            required={isSignUp || authError.includes('belum disahkan') === false}
             style={{ width: '100%', padding: '10px', marginBottom: '15px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}
           />
           
-          {authError && <p style={{ color: 'red', fontSize: '13px', marginBottom: '15px' }}>{authError}</p>}
+          {authError && <div style={{ background: '#f8d7da', color: '#721c24', padding: '10px', borderRadius: '4px', fontSize: '13px', marginBottom: '15px', border: '1px solid #f5c6cb' }}>{authError}</div>}
+          {authMessage && <div style={{ background: '#d1e7dd', color: '#0f5132', padding: '10px', borderRadius: '4px', fontSize: '13px', marginBottom: '15px', border: '1px solid #badbcc' }}>{authMessage}</div>}
           
-          <button type="submit" disabled={authLoading} style={{ width: '100%', background: '#0d6efd', color: '#fff', padding: '10px', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', marginBottom: '12px' }}>
+          <button type="submit" disabled={authLoading} style={{ width: '100%', background: '#0d6efd', color: '#fff', padding: '10px', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', marginBottom: '10px' }}>
             {authLoading ? 'Memproses...' : (isSignUp ? 'Daftar Akaun' : 'Log Masuk')}
           </button>
+
+          {/* Butang Resend Confirmation Email */}
+          {!isSignUp && (
+            <button 
+              type="button" 
+              onClick={handleResendConfirmation} 
+              disabled={authLoading}
+              style={{ width: '100%', background: '#6c757d', color: '#fff', padding: '8px', border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', marginBottom: '15px' }}
+            >
+              🔄 Hantar Semula Emel Pengesahan
+            </button>
+          )}
           
           <div style={{ fontSize: '13px', color: '#666', marginBottom: '15px' }}>
             {isSignUp ? 'Sudah mempunyai akaun?' : 'Belum mempunyai akaun?'}{' '}
             <button 
               type="button" 
-              onClick={() => { setIsSignUp(!isSignUp); setAuthError(''); }} 
+              onClick={() => { setIsSignUp(!isSignUp); setAuthError(''); setAuthMessage(''); }} 
               style={{ background: 'none', border: 'none', color: '#0d6efd', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'underline', padding: 0 }}
             >
               {isSignUp ? 'Log Masuk di sini' : 'Daftar sekarang'}
