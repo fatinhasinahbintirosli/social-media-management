@@ -5,6 +5,7 @@ export async function GET(request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get('code');
   const errorParam = requestUrl.searchParams.get('error');
+  const stateUserId = requestUrl.searchParams.get('state'); // Ambil user_id yang dihantar dari frontend
 
   if (errorParam) {
     return NextResponse.redirect(`${requestUrl.origin}/scheduler?error=facebook_denied`);
@@ -17,28 +18,16 @@ export async function GET(request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   
-  const cookieHeader = request.headers.get('cookie') || '';
-  
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: { persistSession: false },
   });
 
-  const authSupabase = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: { persistSession: false },
-    global: {
-      headers: {
-        cookie: cookieHeader,
-      },
-    },
-  });
-
-  const { data: { session } } = await authSupabase.auth.getSession();
-  
   const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '1746001423192963';
   const appSecret = process.env.FACEBOOK_APP_SECRET;
   const redirectUri = `${requestUrl.origin}/api/auth/facebook/callback`;
 
   try {
+    // 1. Tukar 'code' kepada Facebook Access Token
     const tokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`;
     const tokenRes = await fetch(tokenUrl);
     const tokenData = await tokenRes.json();
@@ -49,6 +38,7 @@ export async function GET(request) {
 
     const userAccessToken = tokenData.access_token;
 
+    // 2. Tarik senarai Page Facebook
     const pagesUrl = `https://graph.facebook.com/v19.0/me/accounts?access_token=${userAccessToken}&limit=100`;
     const pagesRes = await fetch(pagesUrl);
     const pagesData = await pagesRes.json();
@@ -62,12 +52,10 @@ export async function GET(request) {
       return NextResponse.redirect(`${requestUrl.origin}/scheduler?error=no_pages_found`);
     }
 
-    // Dapatkan user_id daripada sesi semasa
-    let userId = session?.user?.id;
+    // 3. Tentukan user_id (utamakan state dari frontend, jika tiada cari fallback dalam db)
+    let userId = stateUserId && stateUserId !== 'undefined' && stateUserId !== 'null' ? stateUserId : null;
 
-    // Jika kuki terhalang semasa redirect Facebook, kita guna fallback bijak
     if (!userId) {
-      // 1. Cuba cari user_id sedia ada yang pernah wujud dalam jadual pages
       const { data: existingPages } = await supabase
         .from('pages')
         .select('user_id')
@@ -76,20 +64,14 @@ export async function GET(request) {
 
       if (existingPages && existingPages.length > 0) {
         userId = existingPages[0].user_id;
-      } else {
-        // 2. Jika tiada langsung dalam pages, ambil user pertama dari auth.users (jika ada akses)
-        const { data: userData } = await supabase.auth.admin?.listUsers?.();
-        if (userData?.users?.length > 0) {
-          userId = userData.users[0].id;
-        }
       }
     }
 
-    // Jika masih gagal juga mendapat mana-mana ID, paksa redirect supaya log masuk semula dengan betul
     if (!userId) {
       return NextResponse.redirect(`${requestUrl.origin}/scheduler?error=not_logged_in`);
     }
 
+    // 4. Simpan page ke Supabase
     for (const page of pages) {
       await supabase
         .from('pages')
