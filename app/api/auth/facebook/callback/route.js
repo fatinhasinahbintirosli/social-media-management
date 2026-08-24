@@ -15,7 +15,7 @@ export async function GET(request) {
   const redirectUri = `${origin}/api/auth/facebook/callback`;
 
   try {
-    // 1. Cuba tukar code kepada token
+    // 1. Tukar code kepada short-lived token
     const tokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`;
     const tokenRes = await fetch(tokenUrl);
     const tokenData = await tokenRes.json();
@@ -24,9 +24,16 @@ export async function GET(request) {
       return new NextResponse(`Ralat Tukar Token Facebook: ${JSON.stringify(tokenData.error)}`, { status: 500 });
     }
 
-    const userAccessToken = tokenData.access_token;
+    const shortToken = tokenData.access_token;
 
-    // 2. Cuba ambil senarai pages
+    // 2. Tukar kepada Long-Lived User Access Token (Supaya tahan lama & stabil)
+    const longTokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${shortToken}`;
+    const longTokenRes = await fetch(longTokenUrl);
+    const longTokenData = await longTokenRes.json();
+
+    const userAccessToken = longTokenData.access_token || shortToken;
+
+    // 3. Tarik senarai Pages (Termasuk perniagaan jika dibenarkan)
     const pagesUrl = `https://graph.facebook.com/v19.0/me/accounts?access_token=${userAccessToken}`;
     const pagesRes = await fetch(pagesUrl);
     const pagesData = await pagesRes.json();
@@ -38,10 +45,10 @@ export async function GET(request) {
     const pages = pagesData.data || [];
 
     if (pages.length === 0) {
-      return new NextResponse('Amaran: Facebook berjaya diakses, tetapi tiada sebarang Page dijumpai pada akaun Facebook ini!', { status: 200 });
+      return new NextResponse('Amaran: Log masuk berjaya, tetapi tiada Page dijumpai. Pastikan anda memilih dan menandakan (check) Page yang betul pada pop-up kebenaran Facebook sebentar tadi.', { status: 200 });
     }
 
-    // 3. Cuba simpan ke Supabase
+    // 4. Simpan ke Supabase
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -63,7 +70,8 @@ export async function GET(request) {
       }
     }
 
-    return new NextResponse('BERJAYA! Data page telah berjaya masuk ke Supabase.', { status: 200 });
+    // Ubah arah (redirect) kembali ke halaman scheduler dengan status success
+    return NextResponse.redirect(`${origin}/scheduler?status=success`);
 
   } catch (err) {
     return new NextResponse(`Ralat Sistem Keseluruhan (Catch): ${err.message}`, { status: 500 });
