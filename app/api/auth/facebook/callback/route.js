@@ -6,7 +6,6 @@ export async function GET(request) {
   const code = searchParams.get('code');
   const error = searchParams.get('error');
 
-  // 1. Semak jika pengguna membatalkan keizinan atau terdapat ralat dari Facebook
   if (error || !code) {
     return NextResponse.redirect(`${origin}/scheduler?status=error&message=${encodeURIComponent(error || 'No code provided')}`);
   }
@@ -16,7 +15,6 @@ export async function GET(request) {
   const redirectUri = `${origin}/api/auth/facebook/callback`;
 
   try {
-    // 2. Tukar authorization code kepada User Access Token
     const tokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`;
     const tokenRes = await fetch(tokenUrl);
     const tokenData = await tokenRes.json();
@@ -27,7 +25,6 @@ export async function GET(request) {
 
     const userAccessToken = tokenData.access_token;
 
-    // 3. Ambil senarai Facebook Pages berserta Page Access Token
     const pagesUrl = `https://graph.facebook.com/v19.0/me/accounts?access_token=${userAccessToken}`;
     const pagesRes = await fetch(pagesUrl);
     const pagesData = await pagesRes.json();
@@ -42,15 +39,12 @@ export async function GET(request) {
       return NextResponse.redirect(`${origin}/scheduler?status=error&message=${encodeURIComponent('Tiada Facebook Page dijumpai untuk akaun ini.')}`);
     }
 
-    // 4. Inisialisasi Supabase Client menggunakan Service Role Key untuk mengelakkan isu RLS
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     );
 
-   // 5. Simpan/Kemaskini senarai Pages secara manual ke dalam pangkalan data Supabase
     for (const page of pages) {
-      // Semak sama ada page_id sudah wujud
       const { data: existingPage } = await supabase
         .from('pages')
         .select('id')
@@ -58,7 +52,6 @@ export async function GET(request) {
         .maybeSingle();
 
       if (existingPage) {
-        // Jika sudah ada, kemaskini token
         const { error: updateError } = await supabase
           .from('pages')
           .update({
@@ -73,7 +66,6 @@ export async function GET(request) {
           console.error(`Ralat kemaskini page ${page.name}:`, updateError.message);
         }
       } else {
-        // Jika belum ada, masukkan rekod baru
         const { error: insertError } = await supabase
           .from('pages')
           .insert({
@@ -89,3 +81,11 @@ export async function GET(request) {
         }
       }
     }
+
+    return NextResponse.redirect(`${origin}/scheduler?status=success`);
+
+  } catch (err) {
+    console.error('Facebook Auth Callback Error:', err.message);
+    return NextResponse.redirect(`${origin}/scheduler?status=error&message=${encodeURIComponent(err.message)}`);
+  }
+}
