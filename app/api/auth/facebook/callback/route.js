@@ -44,16 +44,34 @@ export async function GET(request) {
 
     const pages = pagesData.data || [];
 
-    // --- BAHAGIAN DEBUG ---
-    // Kod ini memaparkan terus senarai page yang dijumpai pada skrin anda
-    return new NextResponse(JSON.stringify({
-      status: "Berjaya hubungi Facebook!",
-      total_pages_found: pages.length,
-      raw_pages_data: pages
-    }, null, 2), { 
-      status: 200, 
-      headers: { 'Content-Type': 'application/json' } 
-    });
+    if (pages.length === 0) {
+      return new NextResponse('Amaran: Log masuk berjaya, tetapi tiada Page dijumpai pada akaun ini.', { status: 200 });
+    }
+
+    // 4. Simpan ke Supabase (Menggunakan Service Role Key atau Anon Key yang sudah dibenarkan policy RLS)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    );
+
+    for (const page of pages) {
+      const { error: dbError } = await supabase
+        .from('pages')
+        .upsert({
+          page_id: page.id,
+          page_name: page.name,
+          access_token: page.access_token,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'page_id' });
+
+      if (dbError) {
+        return new NextResponse(`Ralat Supabase Database: ${dbError.message}`, { status: 500 });
+      }
+    }
+
+    // 5. Berjaya! Redirect kembali ke scheduler
+    return NextResponse.redirect(`${origin}/scheduler?status=success`);
 
   } catch (err) {
     return new NextResponse(`Ralat Sistem Keseluruhan (Catch): ${err.message}`, { status: 500 });
