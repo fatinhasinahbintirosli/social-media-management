@@ -6,10 +6,11 @@ import Link from 'next/link';
 
 export default function SchedulerPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
-  const [loginError, setLoginError] = useState(false);
-
-  const CORRECT_PASSWORD = 'mohdfadliselangor1';
+  const [isSignUp, setIsSignUp] = useState(false); // Penanda sama ada mod Daftar atau Log Masuk
+  const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
 
   const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
@@ -30,14 +31,19 @@ export default function SchedulerPage() {
   );
 
   useEffect(() => {
+    // Semak sesi login Supabase sedia ada
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setIsAuthenticated(true);
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(!!session);
+    });
+
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('status') === 'success') {
-      setIsAuthenticated(true);
-      sessionStorage.setItem('scheduler_auth', 'true');
-    }
-
-    const authStatus = sessionStorage.getItem('scheduler_auth');
-    if (authStatus === 'true') {
       setIsAuthenticated(true);
     }
 
@@ -50,22 +56,53 @@ export default function SchedulerPage() {
       setFetchingPages(false);
     }
     initData();
-  }, []);
 
-  const handleLoginSubmit = (e) => {
+    return () => subscription.unsubscribe();
+  }, [supabase]);
+
+  // Fungsi Pengendalian Auth (Log Masuk & Daftar Akaun)
+  const handleAuthSubmit = async (e) => {
     e.preventDefault();
-    if (passwordInput === CORRECT_PASSWORD) {
-      setIsAuthenticated(true);
-      sessionStorage.setItem('scheduler_auth', 'true');
-      setLoginError(false);
+    setAuthLoading(true);
+    setAuthError('');
+
+    if (isSignUp) {
+      // Proses Daftar Akaun Baru
+      const { data, error } = await supabase.auth.signUp({
+        email: emailInput,
+        password: passwordInput,
+      });
+
+      if (error) {
+        setAuthError(error.message);
+      } else {
+        if (data?.session) {
+          setIsAuthenticated(true);
+        } else {
+          alert('Pendaftaran berjaya! Sila log masuk dengan emel dan kata laluan anda.');
+          setIsSignUp(false);
+        }
+      }
     } else {
-      setLoginError(true);
+      // Proses Log Masuk
+      const { error } = await supabase.auth.signInWithPassword({
+        email: emailInput,
+        password: passwordInput,
+      });
+
+      if (error) {
+        setAuthError('Emel atau kata laluan salah!');
+      } else {
+        setIsAuthenticated(true);
+      }
     }
+    setAuthLoading(false);
   };
 
-  const handleLogout = () => {
-    sessionStorage.removeItem('scheduler_auth');
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setIsAuthenticated(false);
+    setEmailInput('');
     setPasswordInput('');
   };
 
@@ -162,28 +199,52 @@ export default function SchedulerPage() {
     }
   };
 
+  // Jika belum log masuk, papar paparan Borang Log Masuk / Daftar Emel
   if (!isAuthenticated) {
     return (
       <main style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif', background: '#f4f4f4' }}>
-        <form onSubmit={handleLoginSubmit} style={{ background: '#fff', padding: '30px', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', width: '100%', maxWidth: '350px', textAlign: 'center' }}>
+        <form onSubmit={handleAuthSubmit} style={{ background: '#fff', padding: '30px', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', width: '100%', maxWidth: '380px', textAlign: 'center' }}>
           <h2 style={{ marginBottom: '10px', color: '#111' }}>Max Baginda Trading</h2>
-          <p style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>Sila masukkan kata laluan untuk mengakses modul Scheduler.</p>
+          <p style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
+            {isSignUp ? 'Daftar akaun baharu untuk mengakses Scheduler.' : 'Sila log masuk menggunakan emel dan kata laluan.'}
+          </p>
           
           <input 
+            type="email" 
+            placeholder="Alamat Emel..." 
+            value={emailInput}
+            onChange={(e) => setEmailInput(e.target.value)}
+            required
+            style={{ width: '100%', padding: '10px', marginBottom: '12px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+          />
+
+          <input 
             type="password" 
-            placeholder="Kata laluan..." 
+            placeholder="Kata Laluan..." 
             value={passwordInput}
             onChange={(e) => setPasswordInput(e.target.value)}
+            required
             style={{ width: '100%', padding: '10px', marginBottom: '15px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}
           />
           
-          {loginError && <p style={{ color: 'red', fontSize: '13px', marginBottom: '15px' }}>Kata laluan salah!</p>}
+          {authError && <p style={{ color: 'red', fontSize: '13px', marginBottom: '15px' }}>{authError}</p>}
           
-          <button type="submit" style={{ width: '100%', background: '#0d6efd', color: '#fff', padding: '10px', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
-            Log Masuk
+          <button type="submit" disabled={authLoading} style={{ width: '100%', background: '#0d6efd', color: '#fff', padding: '10px', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', marginBottom: '12px' }}>
+            {authLoading ? 'Memproses...' : (isSignUp ? 'Daftar Akaun' : 'Log Masuk')}
           </button>
           
-          <div style={{ marginTop: '20px' }}>
+          <div style={{ fontSize: '13px', color: '#666', marginBottom: '15px' }}>
+            {isSignUp ? 'Sudah mempunyai akaun?' : 'Belum mempunyai akaun?'}{' '}
+            <button 
+              type="button" 
+              onClick={() => { setIsSignUp(!isSignUp); setAuthError(''); }} 
+              style={{ background: 'none', border: 'none', color: '#0d6efd', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'underline', padding: 0 }}
+            >
+              {isSignUp ? 'Log Masuk di sini' : 'Daftar sekarang'}
+            </button>
+          </div>
+
+          <div>
             <a href="/" style={{ fontSize: '13px', color: '#666', textDecoration: 'none' }}>← Kembali ke Laman Utama</a>
           </div>
         </form>
@@ -210,12 +271,10 @@ export default function SchedulerPage() {
           <Link href="/queue-settings" style={{ padding: '8px 14px', background: '#333', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>⚙️ Update Time Slots ({currentProfile})</Link>
           <Link href="/queue" style={{ padding: '8px 14px', background: '#1877f2', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>📋 Lihat Senarai Queue</Link>
           
-          {/* Butang ke halaman khusus Remove Social Media */}
           <Link href="/scheduler/manage-accounts" style={{ padding: '8px 14px', background: '#dc3545', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>
             🗑️ Remove Social Media
           </Link>
 
-          {/* Butang Add Social Media Terus ke Facebook OAuth */}
           <button 
             type="button" 
             onClick={handleFacebookLogin} 
@@ -339,7 +398,6 @@ export default function SchedulerPage() {
             {loading ? 'Memproses...' : (postMode === 'now' ? 'Hantar Sekarang' : `Masukkan ke Auto-Queue (${currentProfile})`)}
           </button>
         </form>
-
 
         {/* KOLUM KANAN: FACEBOOK LIVE PREVIEW ALA SOCIALCHAMP */}
         <div style={{ background: '#ffffff', padding: '20px', borderRadius: '10px', border: '1px solid #dee2e6', position: 'sticky', top: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)' }}>
