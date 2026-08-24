@@ -32,14 +32,27 @@ export default function SchedulerPage() {
   );
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    async function checkUserAndLoadData() {
+      const { data: { session } } = await supabase.auth.getSession();
+      
       if (session) {
         setIsAuthenticated(true);
+        await initData(session.user.id);
+      } else {
+        setFetchingPages(false);
       }
-    });
+    }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    checkUserAndLoadData();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setIsAuthenticated(!!session);
+      if (session) {
+        await initData(session.user.id);
+      } else {
+        setPages([]);
+        setSelectedPages([]);
+      }
     });
 
     const urlParams = new URLSearchParams(window.location.search);
@@ -50,15 +63,25 @@ export default function SchedulerPage() {
     const savedProfile = localStorage.getItem('fb_scheduler_profile') || 'Fatin';
     setCurrentProfile(savedProfile);
 
-    async function initData() {
-      const { data: pData } = await supabase.from('pages').select('page_id, page_name').order('page_name', { ascending: true });
-      setPages(pData || []);
-      setFetchingPages(false);
-    }
-    initData();
-
     return () => subscription.unsubscribe();
   }, [supabase]);
+
+  // Fungsi memuatkan data Page KHUSUS mengikut user_id yang sedang log masuk
+  async function initData(userId) {
+    setFetchingPages(true);
+    const { data: pData, error } = await supabase
+      .from('pages')
+      .select('page_id, page_name')
+      .eq('user_id', userId) // <-- Tapis mengikut user_id semasa
+      .order('page_name', { ascending: true });
+
+    if (error) {
+      console.error('Ralat memuatkan pages:', error.message);
+    }
+
+    setPages(pData || []);
+    setFetchingPages(false);
+  }
 
   // Fungsi Pengendalian Auth (Log Masuk & Daftar Akaun)
   const handleAuthSubmit = async (e) => {
@@ -76,12 +99,12 @@ export default function SchedulerPage() {
       if (error) {
         setAuthError(error.message);
       } else {
-        setAuthMessage('Pendaftaran berjaya! Sila semak emel anda (termasuk folder Spam/Junk) dan klik pautan pengesahan (Confirm your email) sebelum log masuk.');
+        setAuthMessage('Pendaftaran berjaya! Sila semak emel anda (termasuk folder Spam/Junk) dan klik pautan pengesahan sebelum log masuk.');
         setIsSignUp(false);
         setPasswordInput('');
       }
     } else {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { error, data } = await supabase.auth.signInWithPassword({
         email: emailInput,
         password: passwordInput,
       });
@@ -94,12 +117,14 @@ export default function SchedulerPage() {
         }
       } else {
         setIsAuthenticated(true);
+        if (data.session) {
+          await initData(data.session.user.id);
+        }
       }
     }
     setAuthLoading(false);
   };
 
-  // Fungsi Baru: Hantar Semula Emel Pengesahan (Resend Confirmation)
   const handleResendConfirmation = async () => {
     if (!emailInput) {
       setAuthError('Sila masukkan alamat emel anda di ruangan emel di atas terlebih dahulu.');
@@ -130,6 +155,8 @@ export default function SchedulerPage() {
     setPasswordInput('');
     setAuthMessage('');
     setAuthError('');
+    setPages([]);
+    setSelectedPages([]);
   };
 
   const handleProfileChange = (profileName) => {
@@ -225,7 +252,7 @@ export default function SchedulerPage() {
     }
   };
 
-  // Jika belum log masuk, papar paparan Borang Log Masuk / Daftar Emel
+  // Jika belum log masuk
   if (!isAuthenticated) {
     return (
       <main style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif', background: '#f4f4f4', padding: '20px' }}>
@@ -260,7 +287,6 @@ export default function SchedulerPage() {
             {authLoading ? 'Memproses...' : (isSignUp ? 'Daftar Akaun' : 'Log Masuk')}
           </button>
 
-          {/* Butang Resend Confirmation Email */}
           {!isSignUp && (
             <button 
               type="button" 
@@ -330,7 +356,7 @@ export default function SchedulerPage() {
 
       <h1 style={{ color: '#1877f2', marginBottom: '20px' }}>Facebook Scheduler & Preview</h1>
 
-      {/* REKA BENTUK 2 KOLUM (KIRI: FORM, KANAN: LIVE PREVIEW) */}
+      {/* REKA BENTUK 2 KOLUM */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '30px', alignItems: 'start' }}>
         
         {/* KOLUM KIRI: BORANG PENGISIAN */}
@@ -340,12 +366,18 @@ export default function SchedulerPage() {
           <div style={{ marginBottom: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <label style={{ fontWeight: 'bold' }}>Pilih Pages ({selectedPages.length}/{pages.length}):</label>
-              <button type="button" onClick={handleSelectAll} style={{ fontSize: '12px', background: 'none', border: 'none', color: '#1877f2', cursor: 'pointer', textDecoration: 'underline' }}>
-                {selectedPages.length === pages.length ? 'Nyahpilih Semua' : 'Pilih Semua'}
-              </button>
+              {pages.length > 0 && (
+                <button type="button" onClick={handleSelectAll} style={{ fontSize: '12px', background: 'none', border: 'none', color: '#1877f2', cursor: 'pointer', textDecoration: 'underline' }}>
+                  {selectedPages.length === pages.length ? 'Nyahpilih Semua' : 'Pilih Semua'}
+                </button>
+              )}
             </div>
             {fetchingPages ? (
-              <p style={{ fontSize: '13px' }}>Memuatkan senarai page...</p>
+              <p style={{ fontSize: '13px' }}>Memuatkan senarai page anda...</p>
+            ) : pages.length === 0 ? (
+              <div style={{ background: '#fff', padding: '15px', border: '1px solid #ccc', borderRadius: '6px', textAlign: 'center', fontSize: '13px', color: '#666' }}>
+                Tiada Page dijumpai. Sila klik butang <strong style={{ color: '#28a745' }}>"➕ Add Social Media"</strong> di atas untuk menyambungkan Page Facebook anda.
+              </div>
             ) : (
               <div style={{ height: '140px', overflowY: 'auto', background: '#fff', padding: '10px', border: '1px solid #ccc', borderRadius: '6px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 {pages.map(p => (
@@ -438,7 +470,7 @@ export default function SchedulerPage() {
           </button>
         </form>
 
-        {/* KOLUM KANAN: FACEBOOK LIVE PREVIEW ALA SOCIALCHAMP */}
+        {/* KOLUM KANAN: FACEBOOK LIVE PREVIEW */}
         <div style={{ background: '#ffffff', padding: '20px', borderRadius: '10px', border: '1px solid #dee2e6', position: 'sticky', top: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', borderBottom: '1px solid #eee', paddingBottom: '10px' }}>
             <span style={{ fontWeight: 'bold', color: '#1877f2', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -447,10 +479,7 @@ export default function SchedulerPage() {
             <span style={{ fontSize: '11px', background: '#e7f3ff', color: '#1877f2', padding: '3px 8px', borderRadius: '4px', fontWeight: 'bold' }}>Desktop Feed</span>
           </div>
 
-          {/* Kotak Mockup Facebook Post */}
           <div style={{ border: '1px solid #ccd0d5', borderRadius: '8px', background: '#fff', padding: '12px', fontFamily: 'Helvetica, Arial, sans-serif' }}>
-            
-            {/* Header Profil Page */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
               <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#1877f2', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '16px' }}>
                 MB
@@ -461,12 +490,10 @@ export default function SchedulerPage() {
               </div>
             </div>
 
-            {/* Kapsyen Preview */}
             <div style={{ fontSize: '14px', color: '#050505', marginBottom: '10px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', minHeight: '24px' }}>
               {message || <span style={{ color: '#b0b3b8', fontStyle: 'italic' }}>Kapsyen hantaran anda akan dipaparkan di sini...</span>}
             </div>
 
-            {/* Media Utama (Gambar / Video) */}
             {imageUrl ? (
               <div style={{ marginBottom: '10px', borderRadius: '6px', overflow: 'hidden', background: '#000', maxHeight: '250px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                 {isVideo ? (
@@ -481,14 +508,12 @@ export default function SchedulerPage() {
               </div>
             )}
 
-            {/* Butang Interaksi Palsu FB */}
             <div style={{ display: 'flex', justifyContent: 'space-around', borderTop: '1px solid #e4e6eb', borderBottom: '1px solid #e4e6eb', padding: '6px 0', fontSize: '13px', color: '#65676b', fontWeight: '600', marginBottom: '10px' }}>
               <span>👍 Suka</span>
               <span>💬 Komen</span>
               <span>↗️ Kongsi</span>
             </div>
 
-            {/* PREVIEW FIRST COMMENT DI BAWAH */}
             {(firstComment || commentImageUrl) && (
               <div style={{ background: '#f0f2f5', padding: '8px 10px', borderRadius: '8px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                 <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#65676b', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 'bold', flexShrink: '0' }}>
