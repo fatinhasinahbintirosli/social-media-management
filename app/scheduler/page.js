@@ -82,7 +82,7 @@ export default function SchedulerPage() {
     setSelectedPages(selectedPages.includes(pageId) ? selectedPages.filter(id => id !== pageId) : [...selectedPages, pageId]);
   };
 
-  // Fungsi untuk terus ke proses log masuk Facebook OAuth
+  // Fungsi dinamik mengikut domain Vercel semasa (elak isu URL lama /add-account)
   const handleFacebookLogin = () => {
     const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '1746001423192963';
     const redirectUri = encodeURIComponent(`${window.location.origin}/api/auth/facebook/callback`);
@@ -212,7 +212,7 @@ export default function SchedulerPage() {
           <Link href="/queue-settings" style={{ padding: '8px 14px', background: '#333', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>⚙️ Update Time Slots ({currentProfile})</Link>
           <Link href="/queue" style={{ padding: '8px 14px', background: '#1877f2', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>📋 Lihat Senarai Queue</Link>
           
-          {/* Butang Add Social Media yang disambungkan terus ke Facebook Login */}
+          {/* Butang Add Social Media Terus ke Facebook OAuth */}
           <button 
             type="button" 
             onClick={handleFacebookLogin} 
