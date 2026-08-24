@@ -26,14 +26,14 @@ export async function GET(request) {
 
     const shortToken = tokenData.access_token;
 
-    // 2. Tukar kepada Long-Lived User Access Token (Supaya tahan lama & stabil)
+    // 2. Tukar kepada Long-Lived User Access Token
     const longTokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${shortToken}`;
     const longTokenRes = await fetch(longTokenUrl);
     const longTokenData = await longTokenRes.json();
 
     const userAccessToken = longTokenData.access_token || shortToken;
 
-    // 3. Tarik senarai Pages (Termasuk perniagaan jika dibenarkan)
+    // 3. Tarik senarai Pages
     const pagesUrl = `https://graph.facebook.com/v19.0/me/accounts?access_token=${userAccessToken}`;
     const pagesRes = await fetch(pagesUrl);
     const pagesData = await pagesRes.json();
@@ -44,34 +44,16 @@ export async function GET(request) {
 
     const pages = pagesData.data || [];
 
-    if (pages.length === 0) {
-      return new NextResponse('Amaran: Log masuk berjaya, tetapi tiada Page dijumpai. Pastikan anda memilih dan menandakan (check) Page yang betul pada pop-up kebenaran Facebook sebentar tadi.', { status: 200 });
-    }
-
-    // 4. Simpan ke Supabase
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    );
-
-    for (const page of pages) {
-      const { error: dbError } = await supabase
-        .from('pages')
-        .upsert({
-          page_id: page.id,
-          page_name: page.name,
-          access_token: page.access_token,
-          is_active: true,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'page_id' });
-
-      if (dbError) {
-        return new NextResponse(`Ralat Supabase Database: ${dbError.message}`, { status: 500 });
-      }
-    }
-
-    // Ubah arah (redirect) kembali ke halaman scheduler dengan status success
-    return NextResponse.redirect(`${origin}/scheduler?status=success`);
+    // --- BAHAGIAN DEBUG ---
+    // Kod ini memaparkan terus senarai page yang dijumpai pada skrin anda
+    return new NextResponse(JSON.stringify({
+      status: "Berjaya hubungi Facebook!",
+      total_pages_found: pages.length,
+      raw_pages_data: pages
+    }, null, 2), { 
+      status: 200, 
+      headers: { 'Content-Type': 'application/json' } 
+    });
 
   } catch (err) {
     return new NextResponse(`Ralat Sistem Keseluruhan (Catch): ${err.message}`, { status: 500 });
