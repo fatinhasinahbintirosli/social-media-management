@@ -15,11 +15,15 @@ export default function Home() {
             <span style={{ fontSize: '11px', color: '#4b5563', fontWeight: '600' }}>Enterprise Digital Solutions</span>
           </div>
         </div>
-        <nav style={{ display: 'flex', gap: '25px', fontSize: '14px', fontWeight: '600' }}>
+        <nav style={{ display: 'flex', gap: '25px', fontSize: '14px', fontWeight: '600', alignItems: 'center' }}>
           <a href="#about" style={{ color: '#4b5563', textDecoration: 'none' }}>Mengenai Kami</a>
           <a href="#services" style={{ color: '#4b5563', textDecoration: 'none' }}>Perkhidmatan</a>
           <a href="#contact" style={{ color: '#4b5563', textDecoration: 'none' }}>Hubungi</a>
           <a href="/scheduler" style={{ color: '#2563eb', textDecoration: 'none' }}>Scheduler Login</a>
+          {/* Butang Register di Navbar */}
+          <a href="/scheduler" style={{ background: '#2563eb', color: '#fff', padding: '8px 16px', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>
+            Daftar Akaun
+          </a>
         </nav>
       </header>
 
@@ -35,9 +39,13 @@ export default function Home() {
           <p style={{ color: '#4b5563', fontSize: '15px', marginBottom: '25px' }}>
             Max Baginda Trading komited menyediakan solusi perisian, automasi pemasaran, dan infrastruktur digital yang efisien untuk operasi perniagaan moden.
           </p>
-          <div style={{ display: 'flex', gap: '15px' }}>
+          <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
             <a href="/scheduler" style={{ background: '#111827', color: '#fff', padding: '12px 24px', borderRadius: '6px', textDecoration: 'none', fontWeight: 'bold', boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)' }}>
               Buka Facebook Scheduler
+            </a>
+            {/* Butang Daftar Akaun di Hero Section */}
+            <a href="/scheduler" style={{ background: '#2563eb', color: '#fff', padding: '12px 24px', borderRadius: '6px', textDecoration: 'none', fontWeight: 'bold', boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)' }}>
+              Daftar Akaun Baru
             </a>
           </div>
         </div>
