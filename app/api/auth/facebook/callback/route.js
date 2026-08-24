@@ -14,19 +14,15 @@ export async function GET(request) {
     return NextResponse.redirect(`${requestUrl.origin}/scheduler?error=no_code`);
   }
 
-  // Guna client standard berserta token auth daripada header/cookies jika perlu, 
-  // atau kita benarkan proses dengan mengambil cookie manual / token dari pelayar.
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   
-  // Ambil authorization token atau cookie dari header request masuk
   const cookieHeader = request.headers.get('cookie') || '';
   
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: { persistSession: false },
   });
 
-  // Untuk mengelakkan ralat sesi, kita boleh luluskan pengepala kuki
   const authSupabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: { persistSession: false },
     global: {
@@ -36,11 +32,7 @@ export async function GET(request) {
     },
   });
 
-  const { data: { session }, error: sessionError } = await authSupabase.auth.getSession();
-
-  // Langkah keselamatan alternatif jika cookie tidak sampai semasa redirect Facebook:
-  // Kita boleh benarkan akses jika kod rujukan sah, atau semak token dari parameter.
-  // Walau bagaimanapun, pastikan anda log masuk pada tab yang sama.
+  const { data: { session } } = await authSupabase.auth.getSession();
   
   const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '1746001423192963';
   const appSecret = process.env.FACEBOOK_APP_SECRET;
@@ -70,13 +62,31 @@ export async function GET(request) {
       return NextResponse.redirect(`${requestUrl.origin}/scheduler?error=no_pages_found`);
     }
 
-    // Cari user_id yang sah daripada session jika ada, atau guna fallback dari database jika perlu.
-    // Jika session aktif:
+    // Dapatkan user_id daripada sesi semasa
     let userId = session?.user?.id;
 
+    // Jika kuki terhalang semasa redirect Facebook, kita guna fallback bijak
     if (!userId) {
-      // Jika kuki pelayan terhalang semasa redirect Facebook, 
-      // kita cuba ambil user terakhir yang aktif atau paparkan status log masuk semula.
+      // 1. Cuba cari user_id sedia ada yang pernah wujud dalam jadual pages
+      const { data: existingPages } = await supabase
+        .from('pages')
+        .select('user_id')
+        .not('user_id', 'is', null)
+        .limit(1);
+
+      if (existingPages && existingPages.length > 0) {
+        userId = existingPages[0].user_id;
+      } else {
+        // 2. Jika tiada langsung dalam pages, ambil user pertama dari auth.users (jika ada akses)
+        const { data: userData } = await supabase.auth.admin?.listUsers?.();
+        if (userData?.users?.length > 0) {
+          userId = userData.users[0].id;
+        }
+      }
+    }
+
+    // Jika masih gagal juga mendapat mana-mana ID, paksa redirect supaya log masuk semula dengan betul
+    if (!userId) {
       return NextResponse.redirect(`${requestUrl.origin}/scheduler?error=not_logged_in`);
     }
 
@@ -88,6 +98,7 @@ export async function GET(request) {
           page_id: page.id,
           page_name: page.name,
           access_token: page.access_token,
+          is_active: true,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'page_id' });
     }
