@@ -10,12 +10,46 @@ export async function GET(request) {
     return new NextResponse(`Ralat Facebook / Tiada Kod: ${error || 'No code provided'}`, { status: 400 });
   }
 
+  // 1. Inisialisasi Supabase client untuk mendapatkan user sesi semasa
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      auth: {
+        persistSession: false,
+      }
+    }
+  );
+
+  // Ambil token/session daripada cookies atau request headers pelayar pengguna
+  // Nota: Jika anda menggunakan cookie standard Next.js dengan Supabase SSR, pastikan cookie dihantar bersama.
+  // Alternatif paling selamat untuk route handler API Facebook callback:
+  const cookieHeader = request.headers.get('cookie') || '';
+  
+  // Kita guna client khas untuk semak auth user yang sedang login di browser
+  const supabaseClient = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      auth: { persistSession: false },
+      global: { headers: { cookie: cookieHeader } }
+    }
+  );
+
+  const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+
+  if (userError || !user) {
+    return new NextResponse('Ralat: Anda belum log masuk ke dalam aplikasi. Sila log masuk semula sebelum menyambungkan Facebook.', { status: 401 });
+  }
+
+  const userId = user.id;
+
   const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '1746001423192963';
   const appSecret = process.env.FACEBOOK_APP_SECRET;
   const redirectUri = `${origin}/api/auth/facebook/callback`;
 
   try {
-    // 1. Tukar code kepada short-lived token
+    // 2. Tukar code kepada short-lived token
     const tokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`;
     const tokenRes = await fetch(tokenUrl);
     const tokenData = await tokenRes.json();
@@ -26,14 +60,14 @@ export async function GET(request) {
 
     const shortToken = tokenData.access_token;
 
-    // 2. Tukar kepada Long-Lived User Access Token
+    // 3. Tukar kepada Long-Lived User Access Token
     const longTokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${shortToken}`;
     const longTokenRes = await fetch(longTokenUrl);
     const longTokenData = await longTokenRes.json();
 
     const userAccessToken = longTokenData.access_token || shortToken;
 
-    // 3. Tarik kesemua senarai Pages menggunakan Pagination Loop (Sokong Page ke-2, ke-3, dst)
+    // 4. Tarik kesemua senarai Pages menggunakan Pagination Loop (Sokong Page ke-2, ke-3, dst)
     let allPages = [];
     let nextUrl = `https://graph.facebook.com/v19.0/me/accounts?access_token=${userAccessToken}&limit=100`;
 
@@ -49,20 +83,14 @@ export async function GET(request) {
         allPages = [...allPages, ...pagesData.data];
       }
 
-      // Semak jika Facebook berikan pautan untuk halaman seterusnya (pagination)
       nextUrl = pagesData.paging && pagesData.paging.next ? pagesData.paging.next : null;
     }
 
     if (allPages.length === 0) {
-      return new NextResponse('Amaran: Log masuk berjaya, tetapi tiada Page dijumpai pada akaun ini.', { status: 200 });
+      return new NextResponse('Amaran: Log masuk berjaya, tetapi tiada Page dijumpai pada akaun Facebook ini.', { status: 200 });
     }
 
-    // 4. Simpan ke Supabase (Menggunakan Service Role Key atau Anon Key yang sudah dibenarkan policy RLS)
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    );
-
+    // 5. Simpan ke Supabase berserta user_id
     for (const page of allPages) {
       const { error: dbError } = await supabase
         .from('pages')
@@ -70,6 +98,7 @@ export async function GET(request) {
           page_id: page.id,
           page_name: page.name,
           access_token: page.access_token,
+          user_id: userId, // <-- Menyimpan ID pengguna semasa supaya page terikat secara khusus
           is_active: true,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'page_id' });
@@ -79,7 +108,7 @@ export async function GET(request) {
       }
     }
 
-    // 5. Berjaya! Redirect kembali ke scheduler
+    // 6. Berjaya! Redirect kembali ke scheduler
     return NextResponse.redirect(`${origin}/scheduler?status=success`);
 
   } catch (err) {
