@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import Link from 'next/link';
 
@@ -26,10 +26,30 @@ export default function SchedulerPage() {
   const [fileUploading, setFileUploading] = useState(false);
   const [fetchingPages, setFetchingPages] = useState(true);
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL, 
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
+  // Inisialisasi Supabase client di luar gelung render menggunakan useMemo
+  const supabase = useMemo(() => {
+    return createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL, 
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    );
+  }, []);
+
+  // Fungsi memuatkan data Page KHUSUS mengikut user_id yang sedang log masuk
+  async function initData(userId) {
+    setFetchingPages(true);
+    const { data: pData, error } = await supabase
+      .from('pages')
+      .select('page_id, page_name')
+      .eq('user_id', userId) // <-- Tapis mengikut user_id semasa
+      .order('page_name', { ascending: true });
+
+    if (error) {
+      console.error('Ralat memuatkan pages:', error.message);
+    }
+
+    setPages(pData || []);
+    setFetchingPages(false);
+  }
 
   useEffect(() => {
     async function checkUserAndLoadData() {
@@ -64,24 +84,7 @@ export default function SchedulerPage() {
     setCurrentProfile(savedProfile);
 
     return () => subscription.unsubscribe();
-  }, [supabase]);
-
-  // Fungsi memuatkan data Page KHUSUS mengikut user_id yang sedang log masuk
-  async function initData(userId) {
-    setFetchingPages(true);
-    const { data: pData, error } = await supabase
-      .from('pages')
-      .select('page_id, page_name')
-      .eq('user_id', userId) // <-- Tapis mengikut user_id semasa
-      .order('page_name', { ascending: true });
-
-    if (error) {
-      console.error('Ralat memuatkan pages:', error.message);
-    }
-
-    setPages(pData || []);
-    setFetchingPages(false);
-  }
+  }, [supabase]); // Bergantung pada supabase yang di-memo-kan secara stabil
 
   // Fungsi Pengendalian Auth (Log Masuk & Daftar Akaun)
   const handleAuthSubmit = async (e) => {
