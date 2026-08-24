@@ -13,6 +13,7 @@ export default function SchedulerPage() {
 
   const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
+  const [pagesToDelete, setPagesToDelete] = useState([]); // Untuk fungsi remove pages
   const [message, setMessage] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [commentImageUrl, setCommentImageUrl] = useState('');
@@ -23,6 +24,7 @@ export default function SchedulerPage() {
   const [loading, setLoading] = useState(false);
   const [fileUploading, setFileUploading] = useState(false);
   const [fetchingPages, setFetchingPages] = useState(true);
+  const [deletingPages, setDeletingPages] = useState(false);
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL, 
@@ -44,13 +46,15 @@ export default function SchedulerPage() {
     const savedProfile = localStorage.getItem('fb_scheduler_profile') || 'Fatin';
     setCurrentProfile(savedProfile);
 
-    async function initData() {
-      const { data: pData } = await supabase.from('pages').select('page_id, page_name').order('page_name', { ascending: true });
-      setPages(pData || []);
-      setFetchingPages(false);
-    }
-    initData();
+    fetchPagesData();
   }, []);
+
+  async function fetchPagesData() {
+    setFetchingPages(true);
+    const { data: pData } = await supabase.from('pages').select('page_id, page_name').order('page_name', { ascending: true });
+    setPages(pData || []);
+    setFetchingPages(false);
+  }
 
   const handleLoginSubmit = (e) => {
     e.preventDefault();
@@ -82,14 +86,45 @@ export default function SchedulerPage() {
     setSelectedPages(selectedPages.includes(pageId) ? selectedPages.filter(id => id !== pageId) : [...selectedPages, pageId]);
   };
 
-  // Fungsi dinamik mengikut domain Vercel semasa (elak isu URL lama /add-account)
+  // Fungsi Toggle untuk pilih Page yang hendak dibuang
+  const handleDeletePageToggle = (pageId) => {
+    setPagesToDelete(pagesToDelete.includes(pageId) ? pagesToDelete.filter(id => id !== pageId) : [...pagesToDelete, pageId]);
+  };
+
+  // Fungsi untuk membuang Pages terpilih dari Supabase
+  const handleRemoveSelectedPages = async () => {
+    if (pagesToDelete.length === 0) {
+      return alert('Sila tandakan sekurang-kurangnya satu Page untuk dibuang.');
+    }
+
+    const confirmDelete = window.confirm(`Adakah anda pasti mahu membuang ${pagesToDelete.length} Page yang dipilih daripada sistem?`);
+    if (!confirmDelete) return;
+
+    setDeletingPages(true);
+    try {
+      const { error } = await supabase
+        .from('pages')
+        .delete()
+        .in('page_id', pagesToDelete);
+
+      if (error) throw error;
+
+      alert('Page berjaya dibuang daripada sistem!');
+      setPagesToDelete([]);
+      await fetchPagesData(); // Muat semula senarai pages
+    } catch (err) {
+      alert(`Gagal membuang page: ${err.message}`);
+    } finally {
+      setDeletingPages(false);
+    }
+  };
+
   const handleFacebookLogin = () => {
     const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '1746001423192963';
     const redirectUri = encodeURIComponent(`${window.location.origin}/api/auth/facebook/callback`);
     const scope = encodeURIComponent('pages_show_list,pages_manage_posts,pages_read_engagement');
     
     const fbLoginUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code`;
-    
     window.location.href = fbLoginUrl;
   };
 
@@ -212,7 +247,6 @@ export default function SchedulerPage() {
           <Link href="/queue-settings" style={{ padding: '8px 14px', background: '#333', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>⚙️ Update Time Slots ({currentProfile})</Link>
           <Link href="/queue" style={{ padding: '8px 14px', background: '#1877f2', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>📋 Lihat Senarai Queue</Link>
           
-          {/* Butang Add Social Media Terus ke Facebook OAuth */}
           <button 
             type="button" 
             onClick={handleFacebookLogin} 
@@ -235,7 +269,7 @@ export default function SchedulerPage() {
         {/* KOLUM KIRI: BORANG PENGISIAN */}
         <form onSubmit={handleSubmit} style={{ background: '#f8f9fa', padding: '20px', borderRadius: '10px', border: '1px solid #dee2e6' }}>
           
-          {/* Pilih Pages */}
+          {/* Pilih Pages untuk Pos */}
           <div style={{ marginBottom: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <label style={{ fontWeight: 'bold' }}>Pilih Pages ({selectedPages.length}/{pages.length}):</label>
@@ -255,6 +289,29 @@ export default function SchedulerPage() {
                 ))}
               </div>
             )}
+          </div>
+
+          {/* KOTAK PENGURUSAN / BUANG PAGES (REMOVE SOCIAL MEDIA) */}
+          <div style={{ marginBottom: '20px', background: '#fff3f3', padding: '12px', borderRadius: '8px', border: '1px solid #f5c6cb' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label style={{ fontWeight: 'bold', color: '#721c24', fontSize: '13px' }}>🗑️ Urus / Buang Pages Tersimpan:</label>
+              <button 
+                type="button" 
+                onClick={handleRemoveSelectedPages}
+                disabled={deletingPages || pagesToDelete.length === 0}
+                style={{ padding: '4px 10px', background: '#dc3545', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: pagesToDelete.length === 0 ? 'not-allowed' : 'pointer', opacity: pagesToDelete.length === 0 ? 0.6 : 1 }}
+              >
+                {deletingPages ? 'Membuang...' : `Padam Dipilih (${pagesToDelete.length})`}
+              </button>
+            </div>
+            <div style={{ height: '100px', overflowY: 'auto', background: '#fff', padding: '8px', border: '1px solid #f5c6cb', borderRadius: '6px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+              {pages.map(p => (
+                <label key={`del_${p.page_id}`} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', color: '#721c24' }}>
+                  <input type="checkbox" checked={pagesToDelete.includes(p.page_id)} onChange={() => handleDeletePageToggle(p.page_id)} />
+                  {p.page_name}
+                </label>
+              ))}
+            </div>
           </div>
 
           {/* Kapsyen */}
