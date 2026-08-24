@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Tetapkan Supabase client menggunakan Service Role atau Anon Key dengan kebenaran yang betul
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -15,9 +14,8 @@ export async function GET(request) {
     return NextResponse.redirect(new URL('/scheduler?status=error&message=NoCodeProvided', request.url));
   }
 
-  // Masukkan App ID dan App Secret Facebook anda
   const clientId = '1746001423192963'; 
-  const clientSecret = process.env.FACEBOOK_APP_SECRET; // Pastikan anda tetapkan secret ini di env Vercel / .env.local
+  const clientSecret = process.env.FACEBOOK_APP_SECRET; 
   const redirectUri = 'https://social-media-management-tool-lac.vercel.app/api/auth/facebook/callback';
 
   try {
@@ -33,10 +31,10 @@ export async function GET(request) {
 
     const userAccessToken = tokenData.access_token;
 
-    // 2. Ambil senarai Facebook Pages berserta Page Access Token milik pengguna
+    // 2. Ambil senarai Facebook Pages
     const pagesUrl = `https://graph.facebook.com/v19.0/me/accounts?access_token=${userAccessToken}`;
     const pagesRes = await fetch(pagesUrl);
-    const pagesData = await pagesRes.json();
+    pagesData = await pagesRes.json();
 
     if (!pagesData.data) {
       throw new Error('Gagal menarik senarai Pages daripada Facebook.');
@@ -44,20 +42,35 @@ export async function GET(request) {
 
     const pages = pagesData.data;
 
-    // 3. Simpan atau kemaskini secara automatik ke dalam database Supabase (jadual 'pages')
+    // 3. Masukkan atau kemaskini data secara manual ke dalam Supabase
     for (const page of pages) {
-      const { error: upsertError } = await supabase
+      // Semak sama ada page_id sudah wujud di dalam database
+      const { data: existingPages } = await supabase
         .from('pages')
-        .upsert({
-          page_id: page.id,
-          page_name: page.name,
-          access_token: page.access_token, // Token khas untuk post ke page tersebut
-          category: page.category || 'General',
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'page_id' });
+        .select('id')
+        .eq('page_id', page.id)
+        .limit(1);
 
-      if (upsertError) {
-        console.error(`Ralat menyimpan page ${page.name}:`, upsertError.message);
+      if (existingPages && existingPages.length > 0) {
+        // Jika sudah wujud, kemaskini token & nama
+        await supabase
+          .from('pages')
+          .update({
+            page_name: page.name,
+            access_token: page.access_token,
+            is_active: true
+          })
+          .eq('page_id', page.id);
+      } else {
+        // Jika belum wujud, masukkan rekod baru
+        await supabase
+          .from('pages')
+          .insert({
+            page_id: page.id,
+            page_name: page.name,
+            access_token: page.access_token,
+            is_active: true
+          });
       }
     }
 
