@@ -84,7 +84,7 @@ export default function SchedulerPage() {
     setCurrentProfile(savedProfile);
 
     return () => subscription.unsubscribe();
-  }, [supabase]); // Bergantung pada supabase yang di-memo-kan secara stabil
+  }, [supabase]);
 
   // Fungsi Pengendalian Auth (Log Masuk & Daftar Akaun)
   const handleAuthSubmit = async (e) => {
@@ -175,12 +175,16 @@ export default function SchedulerPage() {
     setSelectedPages(selectedPages.includes(pageId) ? selectedPages.filter(id => id !== pageId) : [...selectedPages, pageId]);
   };
 
-  const handleFacebookLogin = () => {
+  // Fungsi Facebook Login dikemaskini dengan membawa 'state={currentUserId}'
+  const handleFacebookLogin = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user ? user.id : '';
+
     const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '1746001423192963';
     const redirectUri = encodeURIComponent(`${window.location.origin}/api/auth/facebook/callback`);
     const scope = encodeURIComponent('pages_show_list,pages_manage_posts,pages_read_engagement');
     
-    const fbLoginUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code`;
+    const fbLoginUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code&state=${currentUserId}`;
     window.location.href = fbLoginUrl;
   };
 
