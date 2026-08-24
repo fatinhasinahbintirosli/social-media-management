@@ -7,7 +7,7 @@ export async function GET(request) {
   const error = searchParams.get('error');
 
   if (error || !code) {
-    return NextResponse.redirect(`${origin}/scheduler?status=error&message=${encodeURIComponent(error || 'No code provided')}`);
+    return new NextResponse(`Ralat Facebook / Tiada Kod: ${error || 'No code provided'}`, { status: 400 });
   }
 
   const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '1746001423192963';
@@ -15,77 +15,57 @@ export async function GET(request) {
   const redirectUri = `${origin}/api/auth/facebook/callback`;
 
   try {
+    // 1. Cuba tukar code kepada token
     const tokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`;
     const tokenRes = await fetch(tokenUrl);
     const tokenData = await tokenRes.json();
 
     if (tokenData.error) {
-      throw new Error(tokenData.error.message);
+      return new NextResponse(`Ralat Tukar Token Facebook: ${JSON.stringify(tokenData.error)}`, { status: 500 });
     }
 
     const userAccessToken = tokenData.access_token;
 
+    // 2. Cuba ambil senarai pages
     const pagesUrl = `https://graph.facebook.com/v19.0/me/accounts?access_token=${userAccessToken}`;
     const pagesRes = await fetch(pagesUrl);
     const pagesData = await pagesRes.json();
 
     if (pagesData.error) {
-      throw new Error(pagesData.error.message);
+      return new NextResponse(`Ralat Graph API Pages: ${JSON.stringify(pagesData.error)}`, { status: 500 });
     }
 
     const pages = pagesData.data || [];
 
     if (pages.length === 0) {
-      return NextResponse.redirect(`${origin}/scheduler?status=error&message=${encodeURIComponent('Tiada Facebook Page dijumpai untuk akaun ini.')}`);
+      return new NextResponse('Amaran: Facebook berjaya diakses, tetapi tiada sebarang Page dijumpai pada akaun Facebook ini!', { status: 200 });
     }
 
+    // 3. Cuba simpan ke Supabase
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     );
 
     for (const page of pages) {
-      const { data: existingPage } = await supabase
+      const { error: dbError } = await supabase
         .from('pages')
-        .select('id')
-        .eq('page_id', page.id)
-        .maybeSingle();
+        .upsert({
+          page_id: page.id,
+          page_name: page.name,
+          access_token: page.access_token,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'page_id' });
 
-      if (existingPage) {
-        const { error: updateError } = await supabase
-          .from('pages')
-          .update({
-            page_name: page.name,
-            access_token: page.access_token,
-            is_active: true,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('page_id', page.id);
-
-        if (updateError) {
-          console.error(`Ralat kemaskini page ${page.name}:`, updateError.message);
-        }
-      } else {
-        const { error: insertError } = await supabase
-          .from('pages')
-          .insert({
-            page_id: page.id,
-            page_name: page.name,
-            access_token: page.access_token,
-            is_active: true,
-            updated_at: new Date().toISOString(),
-          });
-
-        if (insertError) {
-          console.error(`Ralat masukkan page baru ${page.name}:`, insertError.message);
-        }
+      if (dbError) {
+        return new NextResponse(`Ralat Supabase Database: ${dbError.message}`, { status: 500 });
       }
     }
 
-    return NextResponse.redirect(`${origin}/scheduler?status=success`);
+    return new NextResponse('BERJAYA! Data page telah berjaya masuk ke Supabase.', { status: 200 });
 
   } catch (err) {
-    console.error('Facebook Auth Callback Error:', err.message);
-    return NextResponse.redirect(`${origin}/scheduler?status=error&message=${encodeURIComponent(err.message)}`);
+    return new NextResponse(`Ralat Sistem Keseluruhan (Catch): ${err.message}`, { status: 500 });
   }
 }
