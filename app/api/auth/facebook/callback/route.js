@@ -19,7 +19,6 @@ export async function GET(request) {
   const redirectUri = 'https://social-media-management-tool-lac.vercel.app/api/auth/facebook/callback';
 
   try {
-    // 1. Tukar 'code' kepada User Access Token
     const tokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${clientSecret}&code=${code}`;
     
     const tokenRes = await fetch(tokenUrl);
@@ -31,20 +30,18 @@ export async function GET(request) {
 
     const userAccessToken = tokenData.access_token;
 
-    // 2. Ambil senarai Facebook Pages
     const pagesUrl = `https://graph.facebook.com/v19.0/me/accounts?access_token=${userAccessToken}`;
     const pagesRes = await fetch(pagesUrl);
-    pagesData = await pagesRes.json();
+    const pagesData = await pagesRes.json();
 
-    if (!pagesData.data) {
-      throw new Error('Gagal menarik senarai Pages daripada Facebook.');
+    // Debug: Jika tiada data pages langsung dari FB
+    if (!pagesData.data || pagesData.data.length === 0) {
+      throw new Error('Facebook berjaya diakses, tetapi tiada Page ditemui pada akaun ini.');
     }
 
     const pages = pagesData.data;
 
-    // 3. Masukkan atau kemaskini data secara manual ke dalam Supabase
     for (const page of pages) {
-      // Semak sama ada page_id sudah wujud di dalam database
       const { data: existingPages } = await supabase
         .from('pages')
         .select('id')
@@ -52,7 +49,6 @@ export async function GET(request) {
         .limit(1);
 
       if (existingPages && existingPages.length > 0) {
-        // Jika sudah wujud, kemaskini token & nama
         await supabase
           .from('pages')
           .update({
@@ -62,7 +58,6 @@ export async function GET(request) {
           })
           .eq('page_id', page.id);
       } else {
-        // Jika belum wujud, masukkan rekod baru
         await supabase
           .from('pages')
           .insert({
@@ -74,11 +69,11 @@ export async function GET(request) {
       }
     }
 
-    // 4. Redirect semula ke halaman scheduler dengan status kejayaan
     return NextResponse.redirect(new URL('/scheduler?status=success', request.url));
 
   } catch (err) {
     console.error('Callback Error:', err.message);
-    return NextResponse.redirect(new URL(`/scheduler?status=error&message=${encodeURIComponent(err.message)}`, request.url));
+    // Paparkan ralat terus ke skrin supaya kita tahu puncanya
+    return new NextResponse(`Ralat Integrasi Facebook: ${err.message}`, { status: 500 });
   }
 }
