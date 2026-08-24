@@ -1,48 +1,54 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
 export async function GET(request) {
-  const url = new URL(request.url);
-  const code = url.searchParams.get('code');
+  const { searchParams, origin } = new URL(request.url);
+  const code = searchParams.get('code');
+  const error = searchParams.get('error');
 
-  if (!code) {
-    return new NextResponse('Ralat: Tiada kod (code) diterima daripada Facebook.', { status: 400 });
+  // 1. Semak jika pengguna membatalkan keizinan atau terdapat ralat dari Facebook
+  if (error || !code) {
+    return NextResponse.redirect(`${origin}/scheduler?status=error&message=${encodeURIComponent(error || 'No code provided')}`);
   }
 
-  const clientId = process.env.FACEBOOK_APP_ID || '1746001423192963'; 
-  const clientSecret = process.env.FACEBOOK_APP_SECRET; 
-  const redirectUri = 'https://social-media-management-tool-lac.vercel.app/api/auth/facebook/callback';
+  const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '1746001423192963';
+  const appSecret = process.env.FACEBOOK_APP_SECRET;
+  const redirectUri = `${origin}/api/auth/facebook/callback`;
 
   try {
-    // 1. Cuba tukar code kepada token
-    const tokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${clientSecret}&code=${code}`;
-    
+    // 2. Tukar authorization code kepada User Access Token
+    const tokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`;
     const tokenRes = await fetch(tokenUrl);
     const tokenData = await tokenRes.json();
 
-    if (!tokenData.access_token) {
-      return new NextResponse(`Ralat Token Facebook: ${JSON.stringify(tokenData)}`, { status: 500 });
+    if (tokenData.error) {
+      throw new Error(tokenData.error.message);
     }
 
     const userAccessToken = tokenData.access_token;
 
-    // 2. Cuba ambil senarai pages
+    // 3. Ambil senarai Facebook Pages berserta Page Access Token
     const pagesUrl = `https://graph.facebook.com/v19.0/me/accounts?access_token=${userAccessToken}`;
     const pagesRes = await fetch(pagesUrl);
     const pagesData = await pagesRes.json();
 
-    if (!pagesData.data) {
-      return new NextResponse(`Ralat Graph API Pages: ${JSON.stringify(pagesData)}`, { status: 500 });
+    if (pagesData.error) {
+      throw new Error(pagesData.error.message);
     }
 
-    const pages = pagesData.data;
+    const pages = pagesData.data || [];
 
-    // 3. Cuba masukkan ke Supabase
+    if (pages.length === 0) {
+      return NextResponse.redirect(`${origin}/scheduler?status=error&message=${encodeURIComponent('Tiada Facebook Page dijumpai untuk akaun ini.')}`);
+    }
+
+    // 4. Inisialisasi Supabase Client menggunakan Service Role Key untuk mengelakkan isu RLS
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    );
+
+    // 5. Simpan/Kemaskini senarai Pages dan Token ke dalam pangkalan data Supabase
     for (const page of pages) {
       const { error: dbError } = await supabase
         .from('pages')
@@ -50,17 +56,20 @@ export async function GET(request) {
           page_id: page.id,
           page_name: page.name,
           access_token: page.access_token,
-          is_active: true
+          is_active: true,
+          updated_at: new Date().toISOString(),
         }, { onConflict: 'page_id' });
 
       if (dbError) {
-        return new NextResponse(`Ralat Supabase Database: ${dbError.message}`, { status: 500 });
+        console.error(`Ralat menyimpan page ${page.name}:`, dbError.message);
       }
     }
 
-    return new NextResponse('BERJAYA! Semua page telah disimpan ke Supabase. Sila kembali ke halaman scheduler.', { status: 200 });
+    // 6. Lencongkan (Redirect) semula pengguna ke Halaman Scheduler
+    return NextResponse.redirect(`${origin}/scheduler?status=success`);
 
   } catch (err) {
-    return new NextResponse(`Ralat Sistem Keseluruhan: ${err.message}`, { status: 500 });
+    console.error('Facebook Auth Callback Error:', err.message);
+    return NextResponse.redirect(`${origin}/scheduler?status=error&message=${encodeURIComponent(err.message)}`);
   }
 }
