@@ -30,6 +30,13 @@ export default function SchedulerPage() {
   );
 
   useEffect(() => {
+    // Semak jika URL ada status=success daripada Facebook callback
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('status') === 'success') {
+      setIsAuthenticated(true);
+      sessionStorage.setItem('scheduler_auth', 'true');
+    }
+
     const authStatus = sessionStorage.getItem('scheduler_auth');
     if (authStatus === 'true') {
       setIsAuthenticated(true);
@@ -194,7 +201,6 @@ export default function SchedulerPage() {
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <Link href="/queue-settings" style={{ padding: '8px 14px', background: '#333', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>⚙️ Update Time Slots ({currentProfile})</Link>
           <Link href="/queue" style={{ padding: '8px 14px', background: '#1877f2', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>📋 Lihat Senarai Queue</Link>
-          {/* BUTANG TAMBAH SOCIAL MEDIA DI SINI */}
           <Link href="/add-social-media" style={{ padding: '8px 14px', background: '#28a745', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>➕ Add Social Media</Link>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
