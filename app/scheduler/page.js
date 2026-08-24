@@ -30,7 +30,6 @@ export default function SchedulerPage() {
   );
 
   useEffect(() => {
-    // Semak jika URL ada status=success daripada Facebook callback
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('status') === 'success') {
       setIsAuthenticated(true);
@@ -81,6 +80,17 @@ export default function SchedulerPage() {
 
   const handlePageToggle = (pageId) => {
     setSelectedPages(selectedPages.includes(pageId) ? selectedPages.filter(id => id !== pageId) : [...selectedPages, pageId]);
+  };
+
+  // Fungsi untuk terus ke proses log masuk Facebook OAuth
+  const handleFacebookLogin = () => {
+    const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '1746001423192963';
+    const redirectUri = encodeURIComponent(`${window.location.origin}/api/auth/facebook/callback`);
+    const scope = encodeURIComponent('pages_show_list,pages_manage_posts,pages_read_engagement');
+    
+    const fbLoginUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code`;
+    
+    window.location.href = fbLoginUrl;
   };
 
   const handleFileUpload = async (e, setUrlState) => {
@@ -201,7 +211,15 @@ export default function SchedulerPage() {
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <Link href="/queue-settings" style={{ padding: '8px 14px', background: '#333', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>⚙️ Update Time Slots ({currentProfile})</Link>
           <Link href="/queue" style={{ padding: '8px 14px', background: '#1877f2', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>📋 Lihat Senarai Queue</Link>
-          <Link href="/add-social-media" style={{ padding: '8px 14px', background: '#28a745', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>➕ Add Social Media</Link>
+          
+          {/* Butang Add Social Media yang disambungkan terus ke Facebook Login */}
+          <button 
+            type="button" 
+            onClick={handleFacebookLogin} 
+            style={{ padding: '8px 14px', background: '#28a745', color: '#fff', borderRadius: '6px', border: 'none', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}
+          >
+            ➕ Add Social Media
+          </button>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
           <a href="/" style={{ padding: '8px 14px', background: '#6c757d', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>🏠 Laman Utama</a>
