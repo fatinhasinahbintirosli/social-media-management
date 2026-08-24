@@ -26,7 +26,6 @@ export default function SchedulerPage() {
   const [fileUploading, setFileUploading] = useState(false);
   const [fetchingPages, setFetchingPages] = useState(true);
 
-  // Inisialisasi Supabase client di luar gelung render menggunakan useMemo
   const supabase = useMemo(() => {
     return createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL, 
@@ -34,13 +33,12 @@ export default function SchedulerPage() {
     );
   }, []);
 
-  // Fungsi memuatkan data Page KHUSUS mengikut user_id yang sedang log masuk
   async function initData(userId) {
     setFetchingPages(true);
     const { data: pData, error } = await supabase
       .from('pages')
       .select('page_id, page_name')
-      .eq('user_id', userId) // <-- Tapis mengikut user_id semasa
+      .eq('user_id', userId)
       .order('page_name', { ascending: true });
 
     if (error) {
@@ -84,9 +82,8 @@ export default function SchedulerPage() {
     setCurrentProfile(savedProfile);
 
     return () => subscription.unsubscribe();
-  }, [supabase]); // Bergantung pada supabase yang di-memo-kan secara stabil
+  }, [supabase]);
 
-  // Fungsi Pengendalian Auth (Log Masuk & Daftar Akaun)
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthLoading(true);
@@ -102,7 +99,7 @@ export default function SchedulerPage() {
       if (error) {
         setAuthError(error.message);
       } else {
-        setAuthMessage('Pendaftaran berjaya! Sila semak emel anda (termasuk folder Spam/Junk) dan klik pautan pengesahan sebelum log masuk.');
+        setAuthMessage('Pendaftaran berjaya! Sila semak emel anda dan klik pautan pengesahan.');
         setIsSignUp(false);
         setPasswordInput('');
       }
@@ -114,7 +111,7 @@ export default function SchedulerPage() {
 
       if (error) {
         if (error.message.includes('Email not confirmed')) {
-          setAuthError('Emel anda belum disahkan. Sila semak pautan pengesahan di dalam emel anda, atau klik butang hantar semula di bawah.');
+          setAuthError('Emel anda belum disahkan. Sila semak pautan pengesahan di dalam emel anda.');
         } else {
           setAuthError('Emel atau kata laluan salah!');
         }
@@ -146,7 +143,7 @@ export default function SchedulerPage() {
     if (error) {
       setAuthError('Gagal menghantar semula emel: ' + error.message);
     } else {
-      setAuthMessage('Emel pengesahan baharu telah berjaya dihantar ke ' + emailInput + '. Sila semak inbox atau folder spam anda.');
+      setAuthMessage('Emel pengesahan baharu telah berjaya dihantar ke ' + emailInput + '.');
     }
     setAuthLoading(false);
   };
@@ -175,12 +172,16 @@ export default function SchedulerPage() {
     setSelectedPages(selectedPages.includes(pageId) ? selectedPages.filter(id => id !== pageId) : [...selectedPages, pageId]);
   };
 
-  const handleFacebookLogin = () => {
+  // Dikemaskini: Mengambil sesi terkini secara langsung untuk disertakan sebagai state
+  const handleFacebookLogin = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const currentUserId = session?.user?.id || '';
+
     const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '1746001423192963';
     const redirectUri = encodeURIComponent(`${window.location.origin}/api/auth/facebook/callback`);
     const scope = encodeURIComponent('pages_show_list,pages_manage_posts,pages_read_engagement');
     
-    const fbLoginUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code`;
+    const fbLoginUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code&state=${currentUserId}`;
     window.location.href = fbLoginUrl;
   };
 
@@ -255,14 +256,13 @@ export default function SchedulerPage() {
     }
   };
 
-  // Jika belum log masuk
   if (!isAuthenticated) {
     return (
       <main style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif', background: '#f4f4f4', padding: '20px' }}>
         <form onSubmit={handleAuthSubmit} style={{ background: '#fff', padding: '30px', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', width: '100%', maxWidth: '380px', textAlign: 'center' }}>
           <h2 style={{ marginBottom: '10px', color: '#111' }}>Max Baginda Trading</h2>
           <p style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
-            {isSignUp ? 'Daftar akaun baharu (Pengesahan emel diperlukan).' : 'Sila log masuk menggunakan emel dan kata laluan.'}
+            {isSignUp ? 'Daftar akaun baharu.' : 'Sila log masuk menggunakan emel dan kata laluan.'}
           </p>
           
           <input 
@@ -325,7 +325,6 @@ export default function SchedulerPage() {
   return (
     <main style={{ maxWidth: '1400px', margin: '20px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       
-      {/* Bahagian Atas: Profil & Navigasi */}
       <div style={{ background: '#e7f3ff', padding: '15px', borderRadius: '10px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <div><strong>👤 Profil Pengguna Semasa:</strong> {currentProfile}</div>
         <div style={{ display: 'flex', gap: '10px' }}>
@@ -359,13 +358,10 @@ export default function SchedulerPage() {
 
       <h1 style={{ color: '#1877f2', marginBottom: '20px' }}>Facebook Scheduler & Preview</h1>
 
-      {/* REKA BENTUK 2 KOLUM */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '30px', alignItems: 'start' }}>
         
-        {/* KOLUM KIRI: BORANG PENGISIAN */}
         <form onSubmit={handleSubmit} style={{ background: '#f8f9fa', padding: '20px', borderRadius: '10px', border: '1px solid #dee2e6' }}>
           
-          {/* Pilih Pages */}
           <div style={{ marginBottom: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <label style={{ fontWeight: 'bold' }}>Pilih Pages ({selectedPages.length}/{pages.length}):</label>
@@ -393,13 +389,11 @@ export default function SchedulerPage() {
             )}
           </div>
 
-          {/* Kapsyen */}
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Kapsyen:</label>
             <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Tulis kapsyen pos anda..." style={{ width: '100%', height: '90px', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
           </div>
 
-          {/* Upload Media Utama */}
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Upload Gambar / Video Utama (Pilihan):</label>
             <input 
@@ -419,13 +413,11 @@ export default function SchedulerPage() {
             {fileUploading && <small style={{ color: '#0d6efd' }}>Sedang memuat naik fail ke storage...</small>}
           </div>
 
-          {/* First Comment */}
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>First Comment (Komen Pertama):</label>
             <textarea value={firstComment} onChange={e => setFirstComment(e.target.value)} placeholder="Tulis komen pertama (pilihan)..." style={{ width: '100%', height: '60px', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
           </div>
 
-          {/* Comment Image URL */}
           <div style={{ marginBottom: '20px' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Gambar untuk First Comment (Pilihan):</label>
             <input 
@@ -444,7 +436,6 @@ export default function SchedulerPage() {
             />
           </div>
 
-          {/* Pilihan Mod Hantaran */}
           <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap', fontSize: '14px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', fontWeight: 'bold' }}>
               <input type="radio" name="postMode" checked={postMode === 'now'} onChange={() => { setPostMode('now'); setScheduledAt(''); }} /> Pos Sekarang
@@ -473,7 +464,6 @@ export default function SchedulerPage() {
           </button>
         </form>
 
-        {/* KOLUM KANAN: FACEBOOK LIVE PREVIEW */}
         <div style={{ background: '#ffffff', padding: '20px', borderRadius: '10px', border: '1px solid #dee2e6', position: 'sticky', top: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', borderBottom: '1px solid #eee', paddingBottom: '10px' }}>
             <span style={{ fontWeight: 'bold', color: '#1877f2', display: 'flex', alignItems: 'center', gap: '6px' }}>
