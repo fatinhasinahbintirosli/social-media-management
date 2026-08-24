@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/app/lib/supabaseClient';
+import { supabase } from '@/app/supabaseClient';
 import Link from 'next/link';
 
 export default function SchedulerPage() {
