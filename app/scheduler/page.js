@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/app/lib/supabaseClient';
 import Link from 'next/link';
 
 export default function SchedulerPage() {
@@ -23,11 +23,6 @@ export default function SchedulerPage() {
   const [loading, setLoading] = useState(false);
   const [fileUploading, setFileUploading] = useState(false);
   const [fetchingPages, setFetchingPages] = useState(true);
-
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL, 
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
 
   useEffect(() => {
     const authStatus = sessionStorage.getItem('scheduler_auth');
@@ -74,6 +69,17 @@ export default function SchedulerPage() {
 
   const handlePageToggle = (pageId) => {
     setSelectedPages(selectedPages.includes(pageId) ? selectedPages.filter(id => id !== pageId) : [...selectedPages, pageId]);
+  };
+
+  // Fungsi untuk sambung / tambah akaun Facebook Page melalui OAuth
+  const handleConnectFacebook = () => {
+    const appId = process.env.NEXT_PUBLIC_FB_APP_ID;
+    const redirectUri = `${window.location.origin}/api/auth/facebook/callback`;
+    const scope = 'pages_show_list,pages_manage_posts,pages_read_engagement';
+    
+    const fbLoginUrl = `https://www.facebook.com/v18.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&response_type=code`;
+    
+    window.location.href = fbLoginUrl;
   };
 
   const handleFileUpload = async (e, setUrlState) => {
@@ -176,7 +182,6 @@ export default function SchedulerPage() {
     );
   }
 
-  // Semak sama ada URL media utama adalah video atau gambar
   const isVideo = imageUrl.toLowerCase().endsWith('.mp4') || imageUrl.includes('video') || imageUrl.includes('.mov') || imageUrl.includes('.webm');
 
   return (
@@ -210,24 +215,50 @@ export default function SchedulerPage() {
         {/* KOLUM KIRI: BORANG PENGISIAN */}
         <form onSubmit={handleSubmit} style={{ background: '#f8f9fa', padding: '20px', borderRadius: '10px', border: '1px solid #dee2e6' }}>
           
-          {/* Pilih Pages */}
+          {/* Pilih Pages & Butang Sambung Facebook */}
           <div style={{ marginBottom: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '10px' }}>
               <label style={{ fontWeight: 'bold' }}>Pilih Pages ({selectedPages.length}/{pages.length}):</label>
-              <button type="button" onClick={handleSelectAll} style={{ fontSize: '12px', background: 'none', border: 'none', color: '#1877f2', cursor: 'pointer', textDecoration: 'underline' }}>
-                {selectedPages.length === pages.length ? 'Nyahpilih Semua' : 'Pilih Semua'}
-              </button>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={handleConnectFacebook}
+                  style={{
+                    background: '#1877f2',
+                    color: '#fff',
+                    padding: '5px 10px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <span>f</span> Sambung Akaun FB
+                </button>
+                <button type="button" onClick={handleSelectAll} style={{ fontSize: '12px', background: 'none', border: 'none', color: '#1877f2', cursor: 'pointer', textDecoration: 'underline' }}>
+                  {selectedPages.length === pages.length ? 'Nyahpilih Semua' : 'Pilih Semua'}
+                </button>
+              </div>
             </div>
+
             {fetchingPages ? (
               <p style={{ fontSize: '13px' }}>Memuatkan senarai page...</p>
             ) : (
               <div style={{ height: '140px', overflowY: 'auto', background: '#fff', padding: '10px', border: '1px solid #ccc', borderRadius: '6px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                {pages.map(p => (
-                  <label key={p.page_id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={selectedPages.includes(p.page_id)} onChange={() => handlePageToggle(p.page_id)} />
-                    {p.page_name}
-                  </label>
-                ))}
+                {pages.length === 0 ? (
+                  <p style={{ fontSize: '13px', color: '#666', gridColumn: 'span 2' }}>Tiada Page dijumpai. Sila klik "Sambung Akaun FB" di atas.</p>
+                ) : (
+                  pages.map(p => (
+                    <label key={p.page_id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={selectedPages.includes(p.page_id)} onChange={() => handlePageToggle(p.page_id)} />
+                      {p.page_name}
+                    </label>
+                  ))
+                )}
               </div>
             )}
           </div>
@@ -311,7 +342,6 @@ export default function SchedulerPage() {
             {loading ? 'Memproses...' : (postMode === 'now' ? 'Hantar Sekarang' : `Masukkan ke Auto-Queue (${currentProfile})`)}
           </button>
         </form>
-
 
         {/* KOLUM KANAN: FACEBOOK LIVE PREVIEW ALA SOCIALCHAMP */}
         <div style={{ background: '#ffffff', padding: '20px', borderRadius: '10px', border: '1px solid #dee2e6', position: 'sticky', top: '20px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)' }}>
