@@ -33,18 +33,27 @@ export async function GET(request) {
 
     const userAccessToken = longTokenData.access_token || shortToken;
 
-    // 3. Tarik senarai Pages
-    const pagesUrl = `https://graph.facebook.com/v19.0/me/accounts?access_token=${userAccessToken}`;
-    const pagesRes = await fetch(pagesUrl);
-    const pagesData = await pagesRes.json();
+    // 3. Tarik kesemua senarai Pages menggunakan Pagination Loop (Sokong Page ke-2, ke-3, dst)
+    let allPages = [];
+    let nextUrl = `https://graph.facebook.com/v19.0/me/accounts?access_token=${userAccessToken}&limit=100`;
 
-    if (pagesData.error) {
-      return new NextResponse(`Ralat Graph API Pages: ${JSON.stringify(pagesData.error)}`, { status: 500 });
+    while (nextUrl) {
+      const pagesRes = await fetch(nextUrl);
+      const pagesData = await pagesRes.json();
+
+      if (pagesData.error) {
+        return new NextResponse(`Ralat Graph API Pages: ${JSON.stringify(pagesData.error)}`, { status: 500 });
+      }
+
+      if (pagesData.data) {
+        allPages = [...allPages, ...pagesData.data];
+      }
+
+      // Semak jika Facebook berikan pautan untuk halaman seterusnya (pagination)
+      nextUrl = pagesData.paging && pagesData.paging.next ? pagesData.paging.next : null;
     }
 
-    const pages = pagesData.data || [];
-
-    if (pages.length === 0) {
+    if (allPages.length === 0) {
       return new NextResponse('Amaran: Log masuk berjaya, tetapi tiada Page dijumpai pada akaun ini.', { status: 200 });
     }
 
@@ -54,7 +63,7 @@ export async function GET(request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     );
 
-    for (const page of pages) {
+    for (const page of allPages) {
       const { error: dbError } = await supabase
         .from('pages')
         .upsert({
