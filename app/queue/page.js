@@ -40,6 +40,7 @@ export default function QueueSettingsPage() {
       const currentUserId = session.user.id;
       setUserId(currentUserId);
 
+      // Ambil profil milik user ini sahaja
       const { data: profData, error: profError } = await supabase
         .from('profiles')
         .select('*')
@@ -76,7 +77,7 @@ export default function QueueSettingsPage() {
         .from('queue_settings')
         .select('*')
         .eq('profile', currentProfile)
-        .eq('user_id', userId);
+        .eq('user_id', userId); // Ditapis mengikut user_id
 
       if (error) {
         console.error('Ralat memuatkan queue:', error);
@@ -143,6 +144,7 @@ export default function QueueSettingsPage() {
     if (!userId) return;
     setLoading(true);
     try {
+      // Padam data lama untuk profil & user ini sahaja
       const { error: deleteError } = await supabase
         .from('queue_settings')
         .delete()
@@ -151,6 +153,7 @@ export default function QueueSettingsPage() {
 
       if (deleteError) throw deleteError;
 
+      // Masukkan data baharu berserta user_id
       const insertData = [];
       rows.forEach(row => {
         row.days.forEach(day => {
@@ -159,7 +162,7 @@ export default function QueueSettingsPage() {
             time_slot: `${row.time}:00`,
             is_active: true,
             profile: currentProfile,
-            user_id: userId
+            user_id: userId // Simpan ID pengguna semasa
           });
         });
       });
@@ -182,8 +185,7 @@ export default function QueueSettingsPage() {
       
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
         <div>
-          {/* Pautan dikemaskini terus ke URL yang dimahukan */}
-          <Link href="https://social-media-management-beige-six.vercel.app/scheduler" style={{ color: '#1877f2', textDecoration: 'none', fontSize: '14px', display: 'inline-block', marginBottom: '10px' }}>
+          <Link href="/scheduler" style={{ color: '#1877f2', textDecoration: 'none', fontSize: '14px', display: 'inline-block', marginBottom: '10px' }}>
             ← Kembali ke Scheduler
           </Link>
           <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>Create Timeslot ({currentProfile})</h1>
