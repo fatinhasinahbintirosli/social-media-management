@@ -21,7 +21,11 @@ export default function SchedulerPage() {
   const [firstComment, setFirstComment] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
   const [postMode, setPostMode] = useState('now'); 
+  
+  // State untuk Profil Dinamik
+  const [profiles, setProfiles] = useState(['Fatin', 'Adik']);
   const [currentProfile, setCurrentProfile] = useState('Fatin');
+
   const [loading, setLoading] = useState(false);
   const [fileUploading, setFileUploading] = useState(false);
   const [fetchingPages, setFetchingPages] = useState(true);
@@ -76,6 +80,16 @@ export default function SchedulerPage() {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('status') === 'success') {
       setIsAuthenticated(true);
+    }
+
+    // Muat turun senarai profil & profil aktif daripada localStorage
+    const savedProfiles = localStorage.getItem('fb_scheduler_all_profiles');
+    if (savedProfiles) {
+      try {
+        setProfiles(JSON.parse(savedProfiles));
+      } catch (e) {
+        console.error('Ralat parse profiles:', e);
+      }
     }
 
     const savedProfile = localStorage.getItem('fb_scheduler_profile') || 'Fatin';
@@ -162,6 +176,23 @@ export default function SchedulerPage() {
   const handleProfileChange = (profileName) => {
     setCurrentProfile(profileName);
     localStorage.setItem('fb_scheduler_profile', profileName);
+  };
+
+  const handleAddProfile = () => {
+    const newName = prompt('Masukkan nama profil baharu (Cth: Siti, Admin):');
+    if (!newName) return;
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+
+    if (profiles.includes(trimmed)) {
+      alert('Profil ini sudah wujud!');
+      return;
+    }
+
+    const updatedProfiles = [...profiles, trimmed];
+    setProfiles(updatedProfiles);
+    localStorage.setItem('fb_scheduler_all_profiles', JSON.stringify(updatedProfiles));
+    handleProfileChange(trimmed);
   };
 
   const handleSelectAll = () => {
@@ -324,11 +355,36 @@ export default function SchedulerPage() {
   return (
     <main style={{ maxWidth: '1400px', margin: '20px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       
+      {/* Bahagian Pemilihan & Penambahan Profil Dinamik */}
       <div style={{ background: '#e7f3ff', padding: '15px', borderRadius: '10px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <div><strong>👤 Profil Pengguna Semasa:</strong> {currentProfile}</div>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button type="button" onClick={() => handleProfileChange('Fatin')} style={{ padding: '6px 12px', background: currentProfile === 'Fatin' ? '#0d6efd' : '#fff', color: currentProfile === 'Fatin' ? '#fff' : '#000', borderRadius: '5px', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>Profil Fatin</button>
-          <button type="button" onClick={() => handleProfileChange('Adik')} style={{ padding: '6px 12px', background: currentProfile === 'Adik' ? '#198754' : '#fff', color: currentProfile === 'Adik' ? '#fff' : '#000', borderRadius: '5px', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>Profil Adik</button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {profiles.map((prof) => (
+            <button 
+              key={prof}
+              type="button" 
+              onClick={() => handleProfileChange(prof)} 
+              style={{ 
+                padding: '6px 12px', 
+                background: currentProfile === prof ? '#0d6efd' : '#fff', 
+                color: currentProfile === prof ? '#fff' : '#000', 
+                borderRadius: '5px', 
+                border: '1px solid #bcdffb', 
+                cursor: 'pointer', 
+                fontWeight: 'bold' 
+              }}
+            >
+              {prof}
+            </button>
+          ))}
+          <button 
+            type="button" 
+            onClick={handleAddProfile} 
+            style={{ padding: '6px 12px', background: '#198754', color: '#fff', borderRadius: '5px', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
+            title="Tambah Profil Baharu"
+          >
+            + Add Profile
+          </button>
         </div>
       </div>
 
