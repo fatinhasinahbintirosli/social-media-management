@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import Link from 'next/link';
 
@@ -19,7 +19,12 @@ export default function QueueSettingsPage() {
   const [rows, setRows] = useState([]); // Format: [{ time: '07:41', days: [1, 3, 5] }]
   const [loading, setLoading] = useState(false);
 
-  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+  const supabase = useMemo(() => {
+    return createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    );
+  }, []);
 
   useEffect(() => {
     const savedProfile = localStorage.getItem('fb_scheduler_profile');
@@ -60,7 +65,7 @@ export default function QueueSettingsPage() {
       setLoading(false);
     }
     fetchSettings();
-  }, [currentProfile]);
+  }, [currentProfile, supabase]);
 
   const handleProfileChange = (profileName) => {
     setCurrentProfile(profileName);
@@ -139,8 +144,8 @@ export default function QueueSettingsPage() {
       {/* Bahagian Navbar & Tukar Profil */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
         <div>
-          <Link href="/" style={{ color: '#1877f2', textDecoration: 'none', fontSize: '14px', display: 'inline-block', marginBottom: '10px' }}>
-            ← Kembali ke Halaman Utama
+          <Link href="/scheduler" style={{ color: '#1877f2', textDecoration: 'none', fontSize: '14px', display: 'inline-block', marginBottom: '10px' }}>
+            ← Kembali ke Scheduler
           </Link>
           <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>Create Timeslot ({currentProfile})</h1>
         </div>
