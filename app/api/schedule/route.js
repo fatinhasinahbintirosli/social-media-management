@@ -21,26 +21,28 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Format data JSON tidak sah.' }, { status: 400 });
     }
 
-    const { pageIds, message, imageUrl, videoUrl, firstComment, commentImageUrl, scheduledAt, profileId, userId } = body;
+    const { pageIds, message, imageUrl, videoUrl, firstComment, commentImageUrl, scheduledAt, profile, userId } = body;
+    const activeProfile = profile || 'Default';
 
     if (!pageIds || !Array.isArray(pageIds) || pageIds.length === 0) {
       return NextResponse.json({ error: 'Sila pilih sekurang-kurangnya satu Facebook Page.' }, { status: 400 });
     }
 
-    if (!profileId || !userId) {
-      return NextResponse.json({ error: 'ID Profil atau User ID tidak sah.' }, { status: 400 });
+    if (!userId) {
+      return NextResponse.json({ error: 'Sesi pengguna tidak sah (User ID tiada).' }, { status: 400 });
     }
 
     let targetScheduledTime = null;
 
     if (scheduledAt) {
       if (scheduledAt === 'auto-queue') {
-        // Semak pos 'pending' mengikut profile_id unik ini
+        // Semak pos 'pending' khusus untuk profil & user_id ini sahaja
         const { data: lastPosts } = await supabase
           .from('scheduled_posts')
           .select('scheduled_at')
           .eq('status', 'pending')
-          .eq('profile_id', profileId)
+          .eq('profile', activeProfile)
+          .eq('user_id', userId)
           .order('scheduled_at', { ascending: false })
           .limit(1);
 
@@ -48,7 +50,7 @@ export async function POST(request) {
           .from('queue_settings')
           .select('*')
           .eq('is_active', true)
-          .eq('profile_id', profileId);
+          .eq('profile', activeProfile);
 
         const nowUTC = new Date();
         const localTimeStr = nowUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
@@ -148,7 +150,7 @@ export async function POST(request) {
       targetScheduledTime = new Date().toISOString();
     }
 
-    // Simpan pos dengan mengikat profile_id dan user_id
+    // Rekodkan data lengkap bersama user_id dan profile
     const { error: insertError } = await supabase.from('scheduled_posts').insert({
       page_ids: pageIds,
       message: message || '',
@@ -158,17 +160,49 @@ export async function POST(request) {
       comment_image_url: commentImageUrl || null,
       scheduled_at: targetScheduledTime,
       status: 'pending',
-      user_id: userId,
-      profile_id: profileId, // <-- ID Unik Profil
+      profile: activeProfile,
+      user_id: userId, // <-- Dikunci dengan ID Akaun Sah
     });
 
     if (insertError) {
       return NextResponse.json({ error: `Gagal menjadualkan pos: ${insertError.message}` }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, message: 'Pos berjaya dijadualkan!' }, { status: 200 });
+    return NextResponse.json({ success: true, message: `Pos berjaya dijadualkan (${activeProfile})!` }, { status: 200 });
 
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Ralat dalaman server.' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request) {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json({ error: 'Kunci Supabase belum ditetapkan.' }, { status: 500 });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ error: 'ID pos tidak diberikan.' }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from('scheduled_posts')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      return NextResponse.json({ error: `Gagal memadam pos: ${error.message}` }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, message: 'Pos berjaya dipadam!' }, { status: 500 }); // Sikit pembetulan status code pada asal
+  } catch (error) {
+    return NextResponse.json({ error: error.message || 'Ralat server.' }, { status: 500 });
   }
 }
