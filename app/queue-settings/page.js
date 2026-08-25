@@ -77,7 +77,7 @@ export default function QueueSettingsPage() {
         .from('queue_settings')
         .select('*')
         .eq('profile', currentProfile)
-        .eq('user_id', userId); // Ditapis mengikut user_id
+        .eq('user_id', userId);
 
       if (error) {
         console.error('Ralat memuatkan queue:', error);
@@ -95,10 +95,13 @@ export default function QueueSettingsPage() {
         grouped[timeStr].push(item.day_of_week);
       });
 
-      const formattedRows = Object.keys(grouped).map(time => ({
+      let formattedRows = Object.keys(grouped).map(time => ({
         time,
         days: grouped[time]
       }));
+
+      // Susun terus mengikut masa paling awal ke paling lambat semasa paparan dimuatkan
+      formattedRows.sort((a, b) => a.time.localeCompare(b.time));
 
       setRows(formattedRows);
       setLoading(false);
@@ -112,7 +115,9 @@ export default function QueueSettingsPage() {
   };
 
   const addRow = () => {
-    setRows([...rows, { time: '12:00', days: [] }]);
+    // Default tick semua hari (indeks 1, 2, 3, 4, 5, 6, 0) bila tambah row baru
+    const allDays = DAYS.map(d => d.index);
+    setRows([...rows, { time: '12:00', days: allDays }]);
   };
 
   const removeRow = (index) => {
@@ -144,7 +149,10 @@ export default function QueueSettingsPage() {
     if (!userId) return;
     setLoading(true);
     try {
-      // Padam data lama untuk profil & user ini sahaja
+      // 1. Susun baris (rows) mengikut masa paling awal ke paling lambat sebelum simpan
+      const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
+
+      // 2. Padam data lama untuk profil & user ini sahaja
       const { error: deleteError } = await supabase
         .from('queue_settings')
         .delete()
@@ -153,16 +161,16 @@ export default function QueueSettingsPage() {
 
       if (deleteError) throw deleteError;
 
-      // Masukkan data baharu berserta user_id
+      // 3. Masukkan data baharu yang sudah tersusun berserta user_id
       const insertData = [];
-      rows.forEach(row => {
+      sortedRows.forEach(row => {
         row.days.forEach(day => {
           insertData.push({
             day_of_week: day,
             time_slot: `${row.time}:00`,
             is_active: true,
             profile: currentProfile,
-            user_id: userId // Simpan ID pengguna semasa
+            user_id: userId
           });
         });
       });
@@ -172,7 +180,9 @@ export default function QueueSettingsPage() {
         if (insertError) throw insertError;
       }
 
-      alert(`Tetapan Timeslot berjaya disimpan untuk profil ${currentProfile}!`);
+      // Kemaskini state dengan paparan yang sudah tersusun
+      setRows(sortedRows);
+      alert(`Tetapan Timeslot berjaya disimpan dan disusun untuk profil ${currentProfile}!`);
     } catch (err) {
       alert(`Ralat menyimpan: ${err.message}`);
     } finally {
