@@ -7,6 +7,8 @@ import Link from 'next/link';
 export default function QueuePage() {
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [pages, setPages] = useState([]);
+  const [profiles, setProfiles] = useState(['Default']);
+  const [activeProfile, setActiveProfile] = useState('Default');
   const [selectedPageId, setSelectedPageId] = useState('all');
   const [loading, setLoading] = useState(true);
 
@@ -17,6 +19,38 @@ export default function QueuePage() {
     );
   }, []);
 
+  // 1. Muat turun senarai profil unik milik user dari database / localStorage
+  useEffect(() => {
+    async function loadInitialData() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        const currentUserId = session.user.id;
+
+        // Ambil senarai profil unik daripada jadual profiles milik user ini
+        const { data: profData } = await supabase
+          .from('profiles')
+          .select('profile_name')
+          .eq('user_id', currentUserId);
+
+        if (profData && profData.length > 0) {
+          const uniqueNames = [...new Set(profData.map(p => p.profile_name))];
+          setProfiles(uniqueNames);
+        }
+
+        // Ambil profil aktif dari localStorage jika ada
+        const savedProfile = localStorage.getItem('fb_scheduler_profile');
+        if (savedProfile) {
+          setActiveProfile(savedProfile);
+        }
+      } catch (err) {
+        console.error('Ralat memuatkan profil:', err);
+      }
+    }
+    loadInitialData();
+  }, [supabase]);
+
+  // 2. Muat turun Pages dan Scheduled Posts setiap kali profil aktif berubah
   useEffect(() => {
     async function fetchData() {
       try {
@@ -28,8 +62,8 @@ export default function QueuePage() {
         }
         const currentUserId = session.user.id;
 
-        // Ambil profil aktif yang disimpan dalam localStorage
-        const activeProfile = localStorage.getItem('fb_scheduler_profile') || 'Default';
+        // Simpan pilihan profil terkini ke localStorage
+        localStorage.setItem('fb_scheduler_profile', activeProfile);
 
         // Ambil pages milik user ini
         const { data: pData } = await supabase
@@ -38,7 +72,7 @@ export default function QueuePage() {
           .eq('user_id', currentUserId)
           .order('page_name', { ascending: true });
 
-        // Ambil scheduled_posts mengikut profil aktif DAN user_id yang sah (Sangat Selamat!)
+        // Ambil scheduled_posts mengikut profil aktif DAN user_id yang sah
         const { data: sData } = await supabase
           .from('scheduled_posts')
           .select('*')
@@ -55,7 +89,7 @@ export default function QueuePage() {
       }
     }
     fetchData();
-  }, [supabase]);
+  }, [supabase, activeProfile]);
 
   const handleDeleteQueue = async (id) => {
     if (!confirm('Adakah anda pasti mahu memadam pos/queue ini?')) return;
@@ -86,7 +120,7 @@ export default function QueuePage() {
     <main style={{ maxWidth: '900px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       
       {/* Header & Navigasi */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
         <div>
           <Link 
             href="/scheduler" 
@@ -106,11 +140,37 @@ export default function QueuePage() {
             ⬅️ Kembali ke Scheduler
           </Link>
           <h1 style={{ color: '#1877f2', margin: '12px 0 4px 0' }}>Senarai Pos Dijadualkan / Queue</h1>
-          <p style={{ color: '#65676b', fontSize: '14px', margin: 0 }}>Uruskan jadual pos mengikut Facebook Page.</p>
+          <p style={{ color: '#65676b', fontSize: '14px', margin: 0 }}>Uruskan jadual pos mengikut profil dan Facebook Page.</p>
+        </div>
+
+        {/* Pemilih Profil (Profile Selector) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#242526', padding: '8px 12px', borderRadius: '8px', border: '1px solid #3a3b3c' }}>
+          <span style={{ color: '#aaa', fontSize: '12px', fontWeight: 'bold' }}>Profil:</span>
+          <select
+            value={activeProfile}
+            onChange={(e) => setActiveProfile(e.target.value)}
+            style={{
+              padding: '6px 10px',
+              borderRadius: '6px',
+              border: '1px solid #4e4f50',
+              backgroundColor: '#18191a',
+              color: '#fff',
+              fontSize: '13px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              outline: 'none'
+            }}
+          >
+            {profiles.map((prof) => (
+              <option key={prof} value={prof}>
+                👤 {prof}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* Bahagian Dropdown Filter Page (Gaya Social Champ) */}
+      {/* Bahagian Dropdown Filter Page */}
       <div style={{ background: '#242526', padding: '15px 20px', borderRadius: '12px', marginBottom: '25px', display: 'flex', alignItems: 'center', gap: '15px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
         <span style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px' }}>Tapis Page:</span>
         <select
@@ -154,7 +214,7 @@ export default function QueuePage() {
               {loading ? (
                 <tr><td colSpan="4" style={{ padding: '20px', textAlign: 'center', color: '#777' }}>Memuatkan senarai pos...</td></tr>
               ) : filteredPosts.length === 0 ? (
-                <tr><td colSpan="4" style={{ padding: '20px', textAlign: 'center', color: '#777' }}>Tiada rekod pos untuk pilihan ini.</td></tr>
+                <tr><td colSpan="4" style={{ padding: '20px', textAlign: 'center', color: '#777' }}>Tiada rekod pos untuk profil & pilihan ini.</td></tr>
               ) : (
                 filteredPosts.map(p => (
                   <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
