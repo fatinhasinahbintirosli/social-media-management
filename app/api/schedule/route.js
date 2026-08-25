@@ -32,17 +32,36 @@ export async function POST(request) {
 
     if (scheduledAt) {
       if (scheduledAt === 'auto-queue') {
-        // Ambil tetapan queue yang aktif untuk profil ini
+        // 1. Semak pos 'pending' yang paling lewat dijadualkan dalam database untuk profil ini
+        const { data: lastPosts } = await supabase
+          .from('scheduled_posts')
+          .select('scheduled_at')
+          .eq('status', 'pending')
+          .eq('profile', activeProfile)
+          .order('scheduled_at', { ascending: false })
+          .limit(1);
+
+        // Ambil tetapan queue yang aktif
         const { data: queueSettings } = await supabase
           .from('queue_settings')
           .select('*')
           .eq('is_active', true)
           .eq('profile', activeProfile);
 
-        // SENTIASA guna masa sebenar sekarang di Malaysia sebagai asas rujukan utama
         const nowUTC = new Date();
         const localTimeStr = nowUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
         let baseDate = new Date(localTimeStr);
+
+        // JIKA ada pos pending sebelumnya, jadikan masa pos terakhir itu sebagai rujukan (baseDate)
+        // supaya pos seterusnya mengorak langkah ke slot lepas itu (cth: dari 2:05 ke 2:15)
+        if (lastPosts && lastPosts.length > 0 && lastPosts[0].scheduled_at) {
+          const lastDateUTC = new Date(lastPosts[0].scheduled_at);
+          const lastLocalStr = lastDateUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
+          const lastDate = new Date(lastLocalStr);
+          if (!isNaN(lastDate.getTime())) {
+            baseDate = lastDate;
+          }
+        }
 
         let nextSlotTimeStr = null;
 
@@ -64,15 +83,15 @@ export async function POST(request) {
 
           const baseMinutes = baseDate.getHours() * 60 + baseDate.getMinutes();
 
-          // Cari slot kosong yang MASIH ADA MASA pada hari ini
           const todaySlots = queueSettings
             .filter((q) => q.day_of_week === currentDayOfWeek)
             .map((q) => ({ ...q, totalMinutes: parseTimeToMinutes(q.time_slot) }))
             .sort((a, b) => a.totalMinutes - b.totalMinutes);
 
+          // Cari slot yang masanya LEBIH BESAR daripada masa pos terakhir / masa sekarang
           let candidate = todaySlots.find((q) => q.totalMinutes > baseMinutes);
 
-          // Jika semua slot hari ini sudah lepas, baru itik/anjak ke hari esok
+          // Jika tiada slot lagi hari ini, anjak ke hari esok
           if (!candidate) {
             baseDate.setDate(baseDate.getDate() + 1);
             baseDate.setHours(0, 0, 0, 0);
