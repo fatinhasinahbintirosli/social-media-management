@@ -15,7 +15,8 @@ const DAYS = [
 ];
 
 export default function QueueSettingsPage() {
-  const [currentProfile, setCurrentProfile] = useState('Fatin');
+  const [profiles, setProfiles] = useState([]); // State untuk senarai profil dinamik
+  const [currentProfile, setCurrentProfile] = useState('');
   const [rows, setRows] = useState([]); // Format: [{ time: '07:41', days: [1, 3, 5] }]
   const [loading, setLoading] = useState(false);
 
@@ -26,12 +27,49 @@ export default function QueueSettingsPage() {
     );
   }, []);
 
+  // 1. Ambil senarai profil dari database apabila komponen mula dimuatkan
   useEffect(() => {
-    const savedProfile = localStorage.getItem('fb_scheduler_profile');
-    if (savedProfile) setCurrentProfile(savedProfile);
-  }, []);
+    async function fetchProfilesAndSettings() {
+      setLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setLoading(false);
+        return;
+      }
 
+      // Ambil profil dari jadual 'profiles' berdasarkan user_id
+      const { data: profData, error: profError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: true });
+
+      if (profError) {
+        console.error('Ralat memuatkan profil:', profError);
+      } else if (profData && profData.length > 0) {
+        setProfiles(profData);
+
+        // Tentukan profil aktif mengikut localStorage atau pilih yang pertama
+        const savedProfile = localStorage.getItem('fb_scheduler_profile');
+        const profileExists = profData.some(p => p.profile_name === savedProfile);
+
+        if (savedProfile && profileExists) {
+          setCurrentProfile(savedProfile);
+        } else {
+          setCurrentProfile(profData[0].profile_name);
+          localStorage.setItem('fb_scheduler_profile', profData[0].profile_name);
+        }
+      }
+      setLoading(false);
+    }
+
+    fetchProfilesAndSettings();
+  }, [supabase]);
+
+  // 2. Ambil queue settings setiap kali currentProfile berubah
   useEffect(() => {
+    if (!currentProfile) return;
+
     async function fetchSettings() {
       setLoading(true);
       const { data, error } = await supabase
@@ -150,41 +188,31 @@ export default function QueueSettingsPage() {
           <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>Create Timeslot ({currentProfile})</h1>
         </div>
 
-        {/* Butang Tukar Profil */}
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        {/* Butang Tukar Profil Dinamik berdasarkan database */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '13px', color: '#a1a1aa' }}>Profil:</span>
-          <button
-            type="button"
-            onClick={() => handleProfileChange('Fatin')}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '6px',
-              border: 'none',
-              background: currentProfile === 'Fatin' ? '#0d6efd' : '#27272a',
-              color: '#fff',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              fontSize: '13px'
-            }}
-          >
-            Fatin
-          </button>
-          <button
-            type="button"
-            onClick={() => handleProfileChange('Adik')}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '6px',
-              border: 'none',
-              background: currentProfile === 'Adik' ? '#198754' : '#27272a',
-              color: '#fff',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              fontSize: '13px'
-            }}
-          >
-            Adik
-          </button>
+          {profiles.map((p) => {
+            const isActive = currentProfile === p.profile_name;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => handleProfileChange(p.profile_name)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: isActive ? '#198754' : '#27272a',
+                  color: '#fff',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  fontSize: '13px'
+                }}
+              >
+                {p.profile_name}
+              </button>
+            );
+          })}
         </div>
 
         <div style={{ display: 'flex', gap: '12px' }}>
