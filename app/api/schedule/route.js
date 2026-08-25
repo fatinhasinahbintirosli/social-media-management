@@ -14,19 +14,6 @@ export async function POST(request) {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     
-    // Ambil token / sesi pengguna yang sedang membuat permintaan (jika ada Authorization header)
-    // Atau kita boleh baca dari cookie/auth session Supabase
-    const authHeader = request.headers.get('authorization');
-    let currentUserId = null;
-
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
-      const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-      if (!userError && user) {
-        currentUserId = user.id;
-      }
-    }
-
     let body;
     try {
       body = await request.json();
@@ -34,47 +21,34 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Format data JSON tidak sah.' }, { status: 400 });
     }
 
-    const { pageIds, message, imageUrl, videoUrl, firstComment, commentImageUrl, scheduledAt, profile, userId } = body;
-    const activeProfile = profile || 'Fatin';
-    
-    // Jika user_id dihantar melalui body atau berjaya dikesan dari header auth
-    const finalUserId = userId || currentUserId;
+    const { pageIds, message, imageUrl, videoUrl, firstComment, commentImageUrl, scheduledAt, profileId, userId } = body;
 
     if (!pageIds || !Array.isArray(pageIds) || pageIds.length === 0) {
       return NextResponse.json({ error: 'Sila pilih sekurang-kurangnya satu Facebook Page.' }, { status: 400 });
+    }
+
+    if (!profileId || !userId) {
+      return NextResponse.json({ error: 'ID Profil atau User ID tidak sah.' }, { status: 400 });
     }
 
     let targetScheduledTime = null;
 
     if (scheduledAt) {
       if (scheduledAt === 'auto-queue') {
-        // 1. Semak pos 'pending' yang paling lewat dijadualkan dalam database untuk profil & user ini
-        let queryLast = supabase
+        // Semak pos 'pending' mengikut profile_id unik ini
+        const { data: lastPosts } = await supabase
           .from('scheduled_posts')
           .select('scheduled_at')
           .eq('status', 'pending')
-          .eq('profile', activeProfile);
-        
-        if (finalUserId) {
-          queryLast = queryLast.eq('user_id', finalUserId);
-        }
-
-        const { data: lastPosts } = await queryLast
+          .eq('profile_id', profileId)
           .order('scheduled_at', { ascending: false })
           .limit(1);
 
-        // Ambil tetapan queue yang aktif
-        let querySettings = supabase
+        const { data: queueSettings } = await supabase
           .from('queue_settings')
           .select('*')
           .eq('is_active', true)
-          .eq('profile', activeProfile);
-
-        if (finalUserId) {
-          querySettings = querySettings.eq('user_id', finalUserId);
-        }
-
-        const { data: queueSettings } = await querySettings;
+          .eq('profile_id', profileId);
 
         const nowUTC = new Date();
         const localTimeStr = nowUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
@@ -174,8 +148,7 @@ export async function POST(request) {
       targetScheduledTime = new Date().toISOString();
     }
 
-    const postStatus = 'pending';
-
+    // Simpan pos dengan mengikat profile_id dan user_id
     const { error: insertError } = await supabase.from('scheduled_posts').insert({
       page_ids: pageIds,
       message: message || '',
@@ -184,53 +157,18 @@ export async function POST(request) {
       first_comment: firstComment || null,
       comment_image_url: commentImageUrl || null,
       scheduled_at: targetScheduledTime,
-      status: postStatus,
-      profile: activeProfile,
-      user_id: finalUserId || null, // <-- Menyimpan user_id dengan selamat
+      status: 'pending',
+      user_id: userId,
+      profile_id: profileId, // <-- ID Unik Profil
     });
 
     if (insertError) {
       return NextResponse.json({ error: `Gagal menjadualkan pos: ${insertError.message}` }, { status: 500 });
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      message: `Pos berjaya dihantar/dijadualkan (${activeProfile})!` 
-    }, { status: 200 });
+    return NextResponse.json({ success: true, message: 'Pos berjaya dijadualkan!' }, { status: 200 });
 
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Ralat dalaman server.' }, { status: 500 });
-  }
-}
-
-export async function DELETE(request) {
-  try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseKey) {
-      return NextResponse.json({ error: 'Kunci Supabase belum ditetapkan.' }, { status: 500 });
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-
-    if (!id) {
-      return NextResponse.json({ error: 'ID pos tidak diberikan.' }, { status: 400 });
-    }
-
-    const { error } = await supabase
-      .from('scheduled_posts')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      return NextResponse.json({ error: `Gagal memadam pos: ${error.message}` }, { status: 500 });
-    }
-
-    return NextResponse.json({ success: true, message: 'Pos berjaya dipadam!' }, { status: 200 });
-  } catch (error) {
-    return NextResponse.json({ error: error.message || 'Ralat server.' }, { status: 500 });
   }
 }
