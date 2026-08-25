@@ -64,7 +64,7 @@ export default function QueuePage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
         <div>
           <Link 
-            href="/" 
+            href="https://social-media-management-beige-six.vercel.app/scheduler" 
             style={{ 
               display: 'inline-block', 
               padding: '8px 14px', 
@@ -78,7 +78,7 @@ export default function QueuePage() {
               boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
             }}
           >
-            ⬅️ Kembali ke Home
+            ⬅️ Kembali ke Scheduler
           </Link>
           <h1 style={{ color: '#1877f2', margin: '12px 0 4px 0' }}>Senarai Pos Dijadualkan / Queue</h1>
           <p style={{ color: '#65676b', fontSize: '14px', margin: 0 }}>Uruskan jadual pos mengikut Facebook Page.</p>
