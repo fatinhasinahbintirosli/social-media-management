@@ -21,7 +21,6 @@ export default function QueuePage() {
     async function fetchData() {
       try {
         setLoading(true);
-        // 1. Dapatkan sesi pengguna yang sedang log masuk
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
           setLoading(false);
@@ -29,17 +28,21 @@ export default function QueuePage() {
         }
         const currentUserId = session.user.id;
 
-        // 2. Ambil pages dan scheduled_posts khusus untuk user_id ini sahaja
+        // Ambil profil aktif yang disimpan dalam localStorage (sama seperti halaman lain)
+        const activeProfile = localStorage.getItem('fb_scheduler_profile') || 'Default';
+
+        // Ambil pages milik user ini
         const { data: pData } = await supabase
           .from('pages')
           .select('page_id, page_name')
           .eq('user_id', currentUserId)
           .order('page_name', { ascending: true });
 
+        // Ambil scheduled_posts mengikut profil aktif (seperti dalam jadual Supabase anda)
         const { data: sData } = await supabase
           .from('scheduled_posts')
           .select('*')
-          .eq('user_id', currentUserId)
+          .eq('profile', activeProfile)
           .order('created_at', { ascending: false });
         
         setPages(pData || []);
