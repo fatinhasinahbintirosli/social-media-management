@@ -32,32 +32,17 @@ export async function POST(request) {
 
     if (scheduledAt) {
       if (scheduledAt === 'auto-queue') {
-        const { data: lastPosts } = await supabase
-          .from('scheduled_posts')
-          .select('scheduled_at')
-          .eq('status', 'pending')
-          .eq('profile', activeProfile)
-          .order('scheduled_at', { ascending: false })
-          .limit(1);
-
+        // Ambil tetapan queue yang aktif untuk profil ini
         const { data: queueSettings } = await supabase
           .from('queue_settings')
           .select('*')
           .eq('is_active', true)
           .eq('profile', activeProfile);
 
+        // SENTIASA guna masa sebenar sekarang di Malaysia sebagai asas rujukan utama
         const nowUTC = new Date();
         const localTimeStr = nowUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
         let baseDate = new Date(localTimeStr);
-        
-        if (lastPosts && lastPosts.length > 0 && lastPosts[0].scheduled_at) {
-          const lastDateUTC = new Date(lastPosts[0].scheduled_at);
-          const lastLocalStr = lastDateUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
-          const lastDate = new Date(lastLocalStr);
-          if (!isNaN(lastDate.getTime())) {
-            baseDate = lastDate;
-          }
-        }
 
         let nextSlotTimeStr = null;
 
@@ -79,6 +64,7 @@ export async function POST(request) {
 
           const baseMinutes = baseDate.getHours() * 60 + baseDate.getMinutes();
 
+          // Cari slot kosong yang MASIH ADA MASA pada hari ini
           const todaySlots = queueSettings
             .filter((q) => q.day_of_week === currentDayOfWeek)
             .map((q) => ({ ...q, totalMinutes: parseTimeToMinutes(q.time_slot) }))
@@ -86,6 +72,7 @@ export async function POST(request) {
 
           let candidate = todaySlots.find((q) => q.totalMinutes > baseMinutes);
 
+          // Jika semua slot hari ini sudah lepas, baru itik/anjak ke hari esok
           if (!candidate) {
             baseDate.setDate(baseDate.getDate() + 1);
             baseDate.setHours(0, 0, 0, 0);
@@ -144,11 +131,8 @@ export async function POST(request) {
       targetScheduledTime = new Date().toISOString();
     }
 
-    // Tetapkan status kepada 'pending' untuk semua jenis pos (termasuk Post Now)
-    // supaya sistem cron dapat memproses dan menghantarnya terus ke Facebook.
     const postStatus = 'pending';
 
-    // Masukkan ke dalam database
     const { error: insertError } = await supabase.from('scheduled_posts').insert({
       page_ids: pageIds,
       message: message || '',
@@ -178,7 +162,7 @@ export async function POST(request) {
 export async function DELETE(request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json({ error: 'Kunci Supabase belum ditetapkan.' }, { status: 500 });
