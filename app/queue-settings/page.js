@@ -28,7 +28,6 @@ export default function QueueSettingsPage() {
     );
   }, []);
 
-  // 1. Ambil session pengguna, profil, dan tetapan khusus untuk user_id tersebut
   useEffect(() => {
     async function initData() {
       setLoading(true);
@@ -69,7 +68,6 @@ export default function QueueSettingsPage() {
     initData();
   }, [supabase]);
 
-  // 2. Ambil queue settings mengikut profil DAN user_id
   useEffect(() => {
     if (!currentProfile || !userId) return;
 
@@ -79,7 +77,7 @@ export default function QueueSettingsPage() {
         .from('queue_settings')
         .select('*')
         .eq('profile', currentProfile)
-        .eq('user_id', userId); // <-- Penapisan mengikut user_id
+        .eq('user_id', userId); // Ditapis mengikut user_id
 
       if (error) {
         console.error('Ralat memuatkan queue:', error);
@@ -146,7 +144,7 @@ export default function QueueSettingsPage() {
     if (!userId) return;
     setLoading(true);
     try {
-      // 1. Padam data queue_settings lama yang sepadan dengan profil dan user_id ini sahaja
+      // Padam data lama untuk profil & user ini sahaja
       const { error: deleteError } = await supabase
         .from('queue_settings')
         .delete()
@@ -155,7 +153,7 @@ export default function QueueSettingsPage() {
 
       if (deleteError) throw deleteError;
 
-      // 2. Masukkan data baru berserta user_id
+      // Masukkan data baharu berserta user_id
       const insertData = [];
       rows.forEach(row => {
         row.days.forEach(day => {
@@ -164,7 +162,7 @@ export default function QueueSettingsPage() {
             time_slot: `${row.time}:00`,
             is_active: true,
             profile: currentProfile,
-            user_id: userId // <-- Simpan user_id sekali
+            user_id: userId // Simpan ID pengguna semasa
           });
         });
       });
