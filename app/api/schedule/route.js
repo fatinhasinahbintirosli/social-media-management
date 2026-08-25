@@ -36,7 +36,7 @@ export async function POST(request) {
 
     if (scheduledAt) {
       if (scheduledAt === 'auto-queue') {
-        // Semak pos 'pending' khusus untuk profil & user_id ini sahaja
+        // Ambil pos 'pending' terakhir
         const { data: lastPosts } = await supabase
           .from('scheduled_posts')
           .select('scheduled_at')
@@ -52,15 +52,18 @@ export async function POST(request) {
           .eq('is_active', true)
           .eq('profile', activeProfile);
 
+        // Dapatkan masa sebenar sekarang dalam zon masa Malaysia
         const nowUTC = new Date();
         const localTimeStr = nowUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
-        let baseDate = new Date(localTimeStr);
+        let nowLocalDate = new Date(localTimeStr);
+        let baseDate = new Date(nowLocalDate);
 
+        // Jika ada pos pending terakhir, bandingkan dan ambil mana yang lebih lewat
         if (lastPosts && lastPosts.length > 0 && lastPosts[0].scheduled_at) {
           const lastDateUTC = new Date(lastPosts[0].scheduled_at);
           const lastLocalStr = lastDateUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
           const lastDate = new Date(lastLocalStr);
-          if (!isNaN(lastDate.getTime())) {
+          if (!isNaN(lastDate.getTime()) && lastDate > baseDate) {
             baseDate = lastDate;
           }
         }
@@ -68,8 +71,6 @@ export async function POST(request) {
         let nextSlotTimeStr = null;
 
         if (queueSettings && queueSettings.length > 0) {
-          const currentDayOfWeek = baseDate.getDay();
-          
           const parseTimeToMinutes = (timeStr) => {
             if (!timeStr) return 0;
             if (timeStr.includes('M')) {
@@ -83,15 +84,19 @@ export async function POST(request) {
             return parts[0] * 60 + (parts[1] || 0);
           };
 
-          const baseMinutes = baseDate.getHours() * 60 + baseDate.getMinutes();
+          // Semak sama ada kita perlu guna tarikh hari ini atau hari selepas baseDate
+          let currentDayOfWeek = baseDate.getDay();
+          let baseMinutes = baseDate.getHours() * 60 + baseDate.getMinutes();
 
-          const todaySlots = queueSettings
+          // Jika baseDate mengambil masa hari ini, tapis slot hari ini yang masanya lebih besar daripada baseMinutes
+          let todaySlots = queueSettings
             .filter((q) => q.day_of_week === currentDayOfWeek)
             .map((q) => ({ ...q, totalMinutes: parseTimeToMinutes(q.time_slot) }))
             .sort((a, b) => a.totalMinutes - b.totalMinutes);
 
           let candidate = todaySlots.find((q) => q.totalMinutes > baseMinutes);
 
+          // Jika tiada lagi slot hari ini, anjakkan baseDate ke hari esok dan ambil slot pertama hari esok
           if (!candidate) {
             baseDate.setDate(baseDate.getDate() + 1);
             baseDate.setHours(0, 0, 0, 0);
@@ -150,7 +155,6 @@ export async function POST(request) {
       targetScheduledTime = new Date().toISOString();
     }
 
-    // Rekodkan data lengkap bersama user_id dan profile
     const { error: insertError } = await supabase.from('scheduled_posts').insert({
       page_ids: pageIds,
       message: message || '',
@@ -161,7 +165,7 @@ export async function POST(request) {
       scheduled_at: targetScheduledTime,
       status: 'pending',
       profile: activeProfile,
-      user_id: userId, // <-- Dikunci dengan ID Akaun Sah
+      user_id: userId,
     });
 
     if (insertError) {
@@ -201,7 +205,7 @@ export async function DELETE(request) {
       return NextResponse.json({ error: `Gagal memadam pos: ${error.message}` }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, message: 'Pos berjaya dipadam!' }, { status: 500 }); // Sikit pembetulan status code pada asal
+    return NextResponse.json({ success: true, message: 'Pos berjaya dipadam!' }, { status: 200 });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Ralat server.' }, { status: 500 });
   }
