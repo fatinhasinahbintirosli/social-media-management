@@ -15,13 +15,14 @@ export default function SchedulerPage() {
 
   const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
+  const [profiles, setProfiles] = useState([]); // State untuk simpan senarai profil dinamik
   const [message, setMessage] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [commentImageUrl, setCommentImageUrl] = useState('');
   const [firstComment, setFirstComment] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
   const [postMode, setPostMode] = useState('now'); 
-  const [currentProfile, setCurrentProfile] = useState('Fatin');
+  const [currentProfile, setCurrentProfile] = useState('');
   const [loading, setLoading] = useState(false);
   const [fileUploading, setFileUploading] = useState(false);
   const [fetchingPages, setFetchingPages] = useState(true);
@@ -35,6 +36,8 @@ export default function SchedulerPage() {
 
   async function initData(userId) {
     setFetchingPages(true);
+    
+    // 1. Ambil Pages
     const { data: pData, error } = await supabase
       .from('pages')
       .select('page_id, page_name')
@@ -44,8 +47,46 @@ export default function SchedulerPage() {
     if (error) {
       console.error('Ralat memuatkan pages:', error.message);
     }
-
     setPages(pData || []);
+
+    // 2. Ambil Profiles secara dinamik dari database
+    const { data: profData, error: profError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+
+    if (profError) {
+      console.error('Ralat memuatkan profil:', profError.message);
+    } else {
+      if (profData && profData.length > 0) {
+        setProfiles(profData);
+        
+        // Tetapkan profil default atau kekalkan pilihan dari localStorage jika sah
+        const savedProfile = localStorage.getItem('fb_scheduler_profile');
+        const profileExists = profData.some(p => p.profile_name === savedProfile);
+        
+        if (!savedProfile || !profileExists) {
+          setCurrentProfile(profData[0].profile_name);
+          localStorage.setItem('fb_scheduler_profile', profData[0].profile_name);
+        } else {
+          setCurrentProfile(savedProfile);
+        }
+      } else {
+        // Jika tiada profil langsung, cipta profil "Default" secara automatik
+        const { data: newDef } = await supabase
+          .from('profiles')
+          .insert([{ user_id: userId, profile_name: 'Default' }])
+          .select();
+        
+        if (newDef && newDef.length > 0) {
+          setProfiles(newDef);
+          setCurrentProfile('Default');
+          localStorage.setItem('fb_scheduler_profile', 'Default');
+        }
+      }
+    }
+
     setFetchingPages(false);
   }
 
@@ -70,6 +111,7 @@ export default function SchedulerPage() {
       } else {
         setPages([]);
         setSelectedPages([]);
+        setProfiles([]);
       }
     });
 
@@ -77,9 +119,6 @@ export default function SchedulerPage() {
     if (urlParams.get('status') === 'success') {
       setIsAuthenticated(true);
     }
-
-    const savedProfile = localStorage.getItem('fb_scheduler_profile') || 'Fatin';
-    setCurrentProfile(savedProfile);
 
     return () => subscription.unsubscribe();
   }, [supabase]);
@@ -157,6 +196,7 @@ export default function SchedulerPage() {
     setAuthError('');
     setPages([]);
     setSelectedPages([]);
+    setProfiles([]);
   };
 
   const handleProfileChange = (profileName) => {
@@ -324,11 +364,23 @@ export default function SchedulerPage() {
   return (
     <main style={{ maxWidth: '1400px', margin: '20px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       
+      {/* Bahagian Profil Dinamik */}
       <div style={{ background: '#e7f3ff', padding: '15px', borderRadius: '10px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-        <div><strong>👤 Profil Pengguna Semasa:</strong> {currentProfile}</div>
+        <div><strong>👤 Profil Pengguna Semasa:</strong> {currentProfile || 'Tiada Profil'}</div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button type="button" onClick={() => handleProfileChange('Fatin')} style={{ padding: '6px 12px', background: currentProfile === 'Fatin' ? '#0d6efd' : '#fff', color: currentProfile === 'Fatin' ? '#fff' : '#000', borderRadius: '5px', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>Profil Fatin</button>
-          <button type="button" onClick={() => handleProfileChange('Adik')} style={{ padding: '6px 12px', background: currentProfile === 'Adik' ? '#198754' : '#fff', color: currentProfile === 'Adik' ? '#fff' : '#000', borderRadius: '5px', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>Profil Adik</button>
+          {profiles.map((p, idx) => {
+            const isActive = currentProfile === p.profile_name;
+            return (
+              <button 
+                key={p.id || idx} 
+                type="button" 
+                onClick={() => handleProfileChange(p.profile_name)} 
+                style={{ padding: '6px 12px', background: isActive ? '#0d6efd' : '#fff', color: isActive ? '#fff' : '#000', borderRadius: '5px', border: '1px solid #ccc', cursor: 'pointer', fontWeight: 'bold' }}
+              >
+                {p.profile_name}
+              </button>
+            );
+          })}
           
           {/* Butang ke halaman Edit/Add Profile */}
           <Link href="/profiles" style={{ padding: '6px 12px', background: '#6f42c1', color: '#fff', borderRadius: '5px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>
