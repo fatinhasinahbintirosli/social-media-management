@@ -15,10 +15,11 @@ const DAYS = [
 ];
 
 export default function QueueSettingsPage() {
-  const [profiles, setProfiles] = useState([]); // State untuk senarai profil dinamik
+  const [profiles, setProfiles] = useState([]);
   const [currentProfile, setCurrentProfile] = useState('');
-  const [rows, setRows] = useState([]); // Format: [{ time: '07:41', days: [1, 3, 5] }]
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [userId, setUserId] = useState(null);
 
   const supabase = useMemo(() => {
     return createClient(
@@ -27,21 +28,24 @@ export default function QueueSettingsPage() {
     );
   }, []);
 
-  // 1. Ambil senarai profil dari database apabila komponen mula dimuatkan
+  // 1. Ambil session pengguna, profil, dan tetapan khusus untuk user_id tersebut
   useEffect(() => {
-    async function fetchProfilesAndSettings() {
+    async function initData() {
       setLoading(true);
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         setLoading(false);
         return;
       }
+      
+      const currentUserId = session.user.id;
+      setUserId(currentUserId);
 
-      // Ambil profil dari jadual 'profiles' berdasarkan user_id
+      // Ambil profil milik user ini sahaja
       const { data: profData, error: profError } = await supabase
         .from('profiles')
         .select('*')
-        .eq('user_id', session.user.id)
+        .eq('user_id', currentUserId)
         .order('created_at', { ascending: true });
 
       if (profError) {
@@ -49,7 +53,6 @@ export default function QueueSettingsPage() {
       } else if (profData && profData.length > 0) {
         setProfiles(profData);
 
-        // Tentukan profil aktif mengikut localStorage atau pilih yang pertama
         const savedProfile = localStorage.getItem('fb_scheduler_profile');
         const profileExists = profData.some(p => p.profile_name === savedProfile);
 
@@ -63,19 +66,20 @@ export default function QueueSettingsPage() {
       setLoading(false);
     }
 
-    fetchProfilesAndSettings();
+    initData();
   }, [supabase]);
 
-  // 2. Ambil queue settings setiap kali currentProfile berubah
+  // 2. Ambil queue settings mengikut profil DAN user_id
   useEffect(() => {
-    if (!currentProfile) return;
+    if (!currentProfile || !userId) return;
 
     async function fetchSettings() {
       setLoading(true);
       const { data, error } = await supabase
         .from('queue_settings')
         .select('*')
-        .eq('profile', currentProfile);
+        .eq('profile', currentProfile)
+        .eq('user_id', userId); // <-- Penapisan mengikut user_id
 
       if (error) {
         console.error('Ralat memuatkan queue:', error);
@@ -83,11 +87,10 @@ export default function QueueSettingsPage() {
         return;
       }
 
-      // Kumpulkan data mengikut masa (time_slot) khusus untuk profil semasa
       const grouped = {};
       (data || []).forEach(item => {
         if (!item.time_slot) return;
-        const timeStr = item.time_slot.substring(0, 5); // 'HH:MM'
+        const timeStr = item.time_slot.substring(0, 5);
         if (!grouped[timeStr]) {
           grouped[timeStr] = [];
         }
@@ -103,7 +106,7 @@ export default function QueueSettingsPage() {
       setLoading(false);
     }
     fetchSettings();
-  }, [currentProfile, supabase]);
+  }, [currentProfile, userId, supabase]);
 
   const handleProfileChange = (profileName) => {
     setCurrentProfile(profileName);
@@ -140,17 +143,19 @@ export default function QueueSettingsPage() {
   };
 
   const saveSettings = async () => {
+    if (!userId) return;
     setLoading(true);
     try {
-      // 1. Padam hanya data queue_settings yang sepadan dengan profil semasa
+      // 1. Padam data queue_settings lama yang sepadan dengan profil dan user_id ini sahaja
       const { error: deleteError } = await supabase
         .from('queue_settings')
         .delete()
-        .eq('profile', currentProfile);
+        .eq('profile', currentProfile)
+        .eq('user_id', userId);
 
       if (deleteError) throw deleteError;
 
-      // 2. Format semula data untuk dimasukkan ke database berserta nama profil
+      // 2. Masukkan data baru berserta user_id
       const insertData = [];
       rows.forEach(row => {
         row.days.forEach(day => {
@@ -158,7 +163,8 @@ export default function QueueSettingsPage() {
             day_of_week: day,
             time_slot: `${row.time}:00`,
             is_active: true,
-            profile: currentProfile
+            profile: currentProfile,
+            user_id: userId // <-- Simpan user_id sekali
           });
         });
       });
@@ -179,7 +185,6 @@ export default function QueueSettingsPage() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#121212', color: '#fff', padding: '30px', fontFamily: 'sans-serif' }}>
       
-      {/* Bahagian Navbar & Tukar Profil */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
         <div>
           <Link href="/scheduler" style={{ color: '#1877f2', textDecoration: 'none', fontSize: '14px', display: 'inline-block', marginBottom: '10px' }}>
@@ -188,7 +193,6 @@ export default function QueueSettingsPage() {
           <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>Create Timeslot ({currentProfile})</h1>
         </div>
 
-        {/* Butang Tukar Profil Dinamik berdasarkan database */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '13px', color: '#a1a1aa' }}>Profil:</span>
           {profiles.map((p) => {
