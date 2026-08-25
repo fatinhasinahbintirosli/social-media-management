@@ -331,7 +331,7 @@ export default function SchedulerPage() {
           <button type="button" onClick={() => handleProfileChange('Adik')} style={{ padding: '6px 12px', background: currentProfile === 'Adik' ? '#198754' : '#fff', color: currentProfile === 'Adik' ? '#fff' : '#000', borderRadius: '5px', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>Profil Adik</button>
           
           {/* Butang ke halaman Edit/Add Profile */}
-          <Link href="/scheduler/profiles" style={{ padding: '6px 12px', background: '#6f42c1', color: '#fff', borderRadius: '5px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>
+          <Link href="/profiles" style={{ padding: '6px 12px', background: '#6f42c1', color: '#fff', borderRadius: '5px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>
             ⚙️ Edit/Add Profile
           </Link>
         </div>
