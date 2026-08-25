@@ -14,6 +14,19 @@ export async function POST(request) {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     
+    // Ambil token / sesi pengguna yang sedang membuat permintaan (jika ada Authorization header)
+    // Atau kita boleh baca dari cookie/auth session Supabase
+    const authHeader = request.headers.get('authorization');
+    let currentUserId = null;
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+      if (!userError && user) {
+        currentUserId = user.id;
+      }
+    }
+
     let body;
     try {
       body = await request.json();
@@ -21,8 +34,11 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Format data JSON tidak sah.' }, { status: 400 });
     }
 
-    const { pageIds, message, imageUrl, videoUrl, firstComment, commentImageUrl, scheduledAt, profile } = body;
+    const { pageIds, message, imageUrl, videoUrl, firstComment, commentImageUrl, scheduledAt, profile, userId } = body;
     const activeProfile = profile || 'Fatin';
+    
+    // Jika user_id dihantar melalui body atau berjaya dikesan dari header auth
+    const finalUserId = userId || currentUserId;
 
     if (!pageIds || !Array.isArray(pageIds) || pageIds.length === 0) {
       return NextResponse.json({ error: 'Sila pilih sekurang-kurangnya satu Facebook Page.' }, { status: 400 });
@@ -32,28 +48,38 @@ export async function POST(request) {
 
     if (scheduledAt) {
       if (scheduledAt === 'auto-queue') {
-        // 1. Semak pos 'pending' yang paling lewat dijadualkan dalam database untuk profil ini
-        const { data: lastPosts } = await supabase
+        // 1. Semak pos 'pending' yang paling lewat dijadualkan dalam database untuk profil & user ini
+        let queryLast = supabase
           .from('scheduled_posts')
           .select('scheduled_at')
           .eq('status', 'pending')
-          .eq('profile', activeProfile)
+          .eq('profile', activeProfile);
+        
+        if (finalUserId) {
+          queryLast = queryLast.eq('user_id', finalUserId);
+        }
+
+        const { data: lastPosts } = await queryLast
           .order('scheduled_at', { ascending: false })
           .limit(1);
 
         // Ambil tetapan queue yang aktif
-        const { data: queueSettings } = await supabase
+        let querySettings = supabase
           .from('queue_settings')
           .select('*')
           .eq('is_active', true)
           .eq('profile', activeProfile);
 
+        if (finalUserId) {
+          querySettings = querySettings.eq('user_id', finalUserId);
+        }
+
+        const { data: queueSettings } = await querySettings;
+
         const nowUTC = new Date();
         const localTimeStr = nowUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
         let baseDate = new Date(localTimeStr);
 
-        // JIKA ada pos pending sebelumnya, jadikan masa pos terakhir itu sebagai rujukan (baseDate)
-        // supaya pos seterusnya mengorak langkah ke slot lepas itu (cth: dari 2:05 ke 2:15)
         if (lastPosts && lastPosts.length > 0 && lastPosts[0].scheduled_at) {
           const lastDateUTC = new Date(lastPosts[0].scheduled_at);
           const lastLocalStr = lastDateUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
@@ -88,10 +114,8 @@ export async function POST(request) {
             .map((q) => ({ ...q, totalMinutes: parseTimeToMinutes(q.time_slot) }))
             .sort((a, b) => a.totalMinutes - b.totalMinutes);
 
-          // Cari slot yang masanya LEBIH BESAR daripada masa pos terakhir / masa sekarang
           let candidate = todaySlots.find((q) => q.totalMinutes > baseMinutes);
 
-          // Jika tiada slot lagi hari ini, anjak ke hari esok
           if (!candidate) {
             baseDate.setDate(baseDate.getDate() + 1);
             baseDate.setHours(0, 0, 0, 0);
@@ -162,6 +186,7 @@ export async function POST(request) {
       scheduled_at: targetScheduledTime,
       status: postStatus,
       profile: activeProfile,
+      user_id: finalUserId || null, // <-- Menyimpan user_id dengan selamat
     });
 
     if (insertError) {
