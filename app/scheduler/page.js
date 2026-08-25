@@ -172,7 +172,6 @@ export default function SchedulerPage() {
     setSelectedPages(selectedPages.includes(pageId) ? selectedPages.filter(id => id !== pageId) : [...selectedPages, pageId]);
   };
 
-  // Dikemaskini: Mengambil sesi terkini secara langsung untuk disertakan sebagai state
   const handleFacebookLogin = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     const currentUserId = session?.user?.id || '';
