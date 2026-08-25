@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import Link from 'next/link';
 
@@ -10,16 +10,37 @@ export default function QueuePage() {
   const [selectedPageId, setSelectedPageId] = useState('all');
   const [loading, setLoading] = useState(true);
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL, 
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
+  const supabase = useMemo(() => {
+    return createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL, 
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    );
+  }, []);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const { data: pData } = await supabase.from('pages').select('page_id, page_name').order('page_name', { ascending: true });
-        const { data: sData } = await supabase.from('scheduled_posts').select('*').order('created_at', { ascending: false });
+        setLoading(true);
+        // 1. Dapatkan sesi pengguna yang sedang log masuk
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          setLoading(false);
+          return;
+        }
+        const currentUserId = session.user.id;
+
+        // 2. Ambil pages dan scheduled_posts khusus untuk user_id ini sahaja
+        const { data: pData } = await supabase
+          .from('pages')
+          .select('page_id, page_name')
+          .eq('user_id', currentUserId)
+          .order('page_name', { ascending: true });
+
+        const { data: sData } = await supabase
+          .from('scheduled_posts')
+          .select('*')
+          .eq('user_id', currentUserId)
+          .order('created_at', { ascending: false });
         
         setPages(pData || []);
         setScheduledPosts(sData || []);
@@ -30,7 +51,7 @@ export default function QueuePage() {
       }
     }
     fetchData();
-  }, []);
+  }, [supabase]);
 
   const handleDeleteQueue = async (id) => {
     if (!confirm('Adakah anda pasti mahu memadam pos/queue ini?')) return;
@@ -64,7 +85,7 @@ export default function QueuePage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
         <div>
           <Link 
-            href="https://social-media-management-beige-six.vercel.app/scheduler" 
+            href="/scheduler" 
             style={{ 
               display: 'inline-block', 
               padding: '8px 14px', 
