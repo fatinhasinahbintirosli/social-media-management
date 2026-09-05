@@ -47,6 +47,7 @@ export default function AddSocialMediaPage() {
           </button>
         </div>
       </div>
+            
     </main>
   );
 }
