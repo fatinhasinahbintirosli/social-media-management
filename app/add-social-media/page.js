@@ -13,8 +13,8 @@ export default function AddSocialMediaPage() {
     // Redirect URI merujuk kepada API endpoint callback di Vercel anda
     const redirectUri = encodeURIComponent(`${window.location.origin}/api/auth/facebook/callback`);
     
-    // Keizinan (permissions) yang lengkap untuk pages dan perniagaan
-    const scope = encodeURIComponent('pages_show_list,business_management,pages_read_engagement,pages_read_user_content,pages_manage_posts');
+    // Keizinan (permissions) yang lengkap untuk pages dan perniagaan termasuk pages_manage_engagement
+    const scope = encodeURIComponent('pages_show_list,business_management,pages_read_engagement,pages_read_user_content,pages_manage_posts,pages_manage_engagement');
 
     // Hantar pengguna ke tetingkap log masuk Facebook (PERLU ada response_type=code)
     window.location.href = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code`;
