@@ -218,7 +218,7 @@ export default function SchedulerPage() {
 
     const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '1746001423192963';
     const redirectUri = encodeURIComponent(`${window.location.origin}/api/auth/facebook/callback`);
-    const scope = encodeURIComponent('pages_show_list,pages_manage_posts,pages_read_engagement');
+    const scope = encodeURIComponent('pages_show_list,pages_manage_posts,pages_read_engagement,pages_manage_engagement');
     
     const fbLoginUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code&state=${currentUserId}`;
     window.location.href = fbLoginUrl;
