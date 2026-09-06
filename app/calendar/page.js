@@ -127,7 +127,7 @@ export default function CalendarPostsPage() {
     });
   }, [localPosts, selectedPageId, startDate, endDate, searchQuery]);
 
-  // Group pos berdasarkan Mesej Kapsyen & Tarikh Hari yang sama (toleransi masa dibesarkan kepada 30 minit)
+  // Group pos dengan toleransi masa dinaikkan kepada 10 Minit (600,000 ms) & kapsyen seiras
   const groupedPosts = useMemo(() => {
     const groups = [];
 
@@ -140,12 +140,11 @@ export default function CalendarPostsPage() {
         const pDateStr = p.scheduled_at ? new Date(p.scheduled_at).toISOString().split('T')[0] : '';
         const pMsg = (p.message || '').trim();
 
-        // Cari kumpulan sedia ada yang mempunyai kapsyen sama pada hari yang sama (toleransi masa 30 minit)
+        // Cari kumpulan sedia ada dalam julat 10 minit pada hari yang sama
         let foundGroup = groups.find(g => {
           const timeDiff = Math.abs(g.baseTime - pTime);
           const sameDay = g.dateStr === pDateStr;
-          // Gabung jika kapsyen seiras dan berlaku pada hari yang sama dalam julat 30 minit
-          return g.message === pMsg && sameDay && timeDiff <= 30 * 60 * 1000;
+          return g.message === pMsg && sameDay && timeDiff <= 10 * 60 * 1000;
         });
 
         if (foundGroup) {
