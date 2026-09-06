@@ -78,7 +78,7 @@ export default function QueuePage() {
           .select('*')
           .ilike('profile', activeProfile)
           .eq('user_id', currentUserId)
-          .order('created_at', { ascending: false });
+        
         
         setPages(pData || []);
         setScheduledPosts(sData || []);
