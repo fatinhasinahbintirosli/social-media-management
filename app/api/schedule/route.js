@@ -32,141 +32,171 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Sesi pengguna tidak sah (User ID tiada).' }, { status: 400 });
     }
 
-    let targetScheduledTime = null;
+    // Senarai untuk menampung semua rekod yang hendak dimasukkan ke Supabase
+    let recordsToInsert = [];
 
-    if (scheduledAt) {
-      if (scheduledAt === 'auto-queue') {
-        // Ambil pos 'pending' terakhir
-        const { data: lastPosts } = await supabase
-          .from('scheduled_posts')
-          .select('scheduled_at')
-          .eq('status', 'pending')
-          .eq('profile', activeProfile)
-          .eq('user_id', userId)
-          .order('scheduled_at', { ascending: false })
-          .limit(1);
-
-        const { data: queueSettings } = await supabase
-          .from('queue_settings')
-          .select('*')
-          .eq('is_active', true)
-          .eq('profile', activeProfile);
-
-        // Dapatkan masa sebenar sekarang dalam zon masa Malaysia
-        const nowUTC = new Date();
-        const localTimeStr = nowUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
-        let nowLocalDate = new Date(localTimeStr);
-        let baseDate = new Date(nowLocalDate);
-
-        // Jika ada pos pending terakhir, bandingkan dan ambil mana yang lebih lewat
-        if (lastPosts && lastPosts.length > 0 && lastPosts[0].scheduled_at) {
-          const lastDateUTC = new Date(lastPosts[0].scheduled_at);
-          const lastLocalStr = lastDateUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
-          const lastDate = new Date(lastLocalStr);
-          if (!isNaN(lastDate.getTime()) && lastDate > baseDate) {
-            baseDate = lastDate;
-          }
+    // Kes 1: Jadual Manual (Array pelbagai masa)
+    if (Array.isArray(scheduledAt)) {
+      for (const timeStr of scheduledAt) {
+        if (!timeStr) continue;
+        const formatted = timeStr.endsWith('Z') || timeStr.includes('+') ? timeStr : `${timeStr}:00+08:00`;
+        const parsedDate = new Date(formatted);
+        if (isNaN(parsedDate.getTime())) {
+          return NextResponse.json({ error: `Format masa jadual tidak sah: ${timeStr}` }, { status: 400 });
         }
+        recordsToInsert.push({
+          page_ids: pageIds,
+          message: message || '',
+          image_url: imageUrl || null,
+          video_url: videoUrl || null,
+          first_comment: firstComment || null,
+          comment_image_url: commentImageUrl || null,
+          scheduled_at: parsedDate.toISOString(),
+          status: 'pending',
+          profile: activeProfile,
+          user_id: userId,
+        });
+      }
 
-        let nextSlotTimeStr = null;
+      if (recordsToInsert.length === 0) {
+        return NextResponse.json({ error: 'Tiada masa jadual manual yang sah diberikan.' }, { status: 400 });
+      }
+    } 
+    // Kes 2: Auto-Queue atau Pos Sekarang / Tunggal
+    else {
+      let targetScheduledTime = null;
 
-        if (queueSettings && queueSettings.length > 0) {
-          const parseTimeToMinutes = (timeStr) => {
-            if (!timeStr) return 0;
-            if (timeStr.includes('M')) {
-              const [timePart, modifier] = timeStr.split(' ');
-              let [hours, minutes] = timePart.split(':').map(Number);
-              if (modifier === 'PM' && hours < 12) hours += 12;
-              if (modifier === 'AM' && hours === 12) hours = 0;
-              return hours * 60 + minutes;
+      if (scheduledAt) {
+        if (scheduledAt === 'auto-queue') {
+          // Ambil pos 'pending' terakhir
+          const { data: lastPosts } = await supabase
+            .from('scheduled_posts')
+            .select('scheduled_at')
+            .eq('status', 'pending')
+            .eq('profile', activeProfile)
+            .eq('user_id', userId)
+            .order('scheduled_at', { ascending: false })
+            .limit(1);
+
+          const { data: queueSettings } = await supabase
+            .from('queue_settings')
+            .select('*')
+            .eq('is_active', true)
+            .eq('profile', activeProfile);
+
+          const nowUTC = new Date();
+          const localTimeStr = nowUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
+          let nowLocalDate = new Date(localTimeStr);
+          let baseDate = new Date(nowLocalDate);
+
+          if (lastPosts && lastPosts.length > 0 && lastPosts[0].scheduled_at) {
+            const lastDateUTC = new Date(lastPosts[0].scheduled_at);
+            const lastLocalStr = lastDateUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
+            const lastDate = new Date(lastLocalStr);
+            if (!isNaN(lastDate.getTime()) && lastDate > baseDate) {
+              baseDate = lastDate;
             }
-            const parts = timeStr.split(':').map(Number);
-            return parts[0] * 60 + (parts[1] || 0);
-          };
+          }
 
-          // Semak sama ada kita perlu guna tarikh hari ini atau hari selepas baseDate
-          let currentDayOfWeek = baseDate.getDay();
-          let baseMinutes = baseDate.getHours() * 60 + baseDate.getMinutes();
+          let nextSlotTimeStr = null;
 
-          // Jika baseDate mengambil masa hari ini, tapis slot hari ini yang masanya lebih besar daripada baseMinutes
-          let todaySlots = queueSettings
-            .filter((q) => q.day_of_week === currentDayOfWeek)
-            .map((q) => ({ ...q, totalMinutes: parseTimeToMinutes(q.time_slot) }))
-            .sort((a, b) => a.totalMinutes - b.totalMinutes);
+          if (queueSettings && queueSettings.length > 0) {
+            const parseTimeToMinutes = (timeStr) => {
+              if (!timeStr) return 0;
+              if (timeStr.includes('M')) {
+                const [timePart, modifier] = timeStr.split(' ');
+                let [hours, minutes] = timePart.split(':').map(Number);
+                if (modifier === 'PM' && hours < 12) hours += 12;
+                if (modifier === 'AM' && hours === 12) hours = 0;
+                return hours * 60 + minutes;
+              }
+              const parts = timeStr.split(':').map(Number);
+              return parts[0] * 60 + (parts[1] || 0);
+            };
 
-          let candidate = todaySlots.find((q) => q.totalMinutes > baseMinutes);
+            let currentDayOfWeek = baseDate.getDay();
+            let baseMinutes = baseDate.getHours() * 60 + baseDate.getMinutes();
 
-          // Jika tiada lagi slot hari ini, anjakkan baseDate ke hari esok dan ambil slot pertama hari esok
-          if (!candidate) {
-            baseDate.setDate(baseDate.getDate() + 1);
-            baseDate.setHours(0, 0, 0, 0);
-            const nextDayOfWeek = baseDate.getDay();
-            
-            const tomorrowSlots = queueSettings
-              .filter((q) => q.day_of_week === nextDayOfWeek)
+            let todaySlots = queueSettings
+              .filter((q) => q.day_of_week === currentDayOfWeek)
               .map((q) => ({ ...q, totalMinutes: parseTimeToMinutes(q.time_slot) }))
               .sort((a, b) => a.totalMinutes - b.totalMinutes);
 
-            candidate = tomorrowSlots[0] || queueSettings[0];
+            let candidate = todaySlots.find((q) => q.totalMinutes > baseMinutes);
+
+            if (!candidate) {
+              baseDate.setDate(baseDate.getDate() + 1);
+              baseDate.setHours(0, 0, 0, 0);
+              const nextDayOfWeek = baseDate.getDay();
+              
+              const tomorrowSlots = queueSettings
+                .filter((q) => q.day_of_week === nextDayOfWeek)
+                .map((q) => ({ ...q, totalMinutes: parseTimeToMinutes(q.time_slot) }))
+                .sort((a, b) => a.totalMinutes - b.totalMinutes);
+
+              candidate = tomorrowSlots[0] || queueSettings[0];
+            }
+
+            if (candidate && candidate.time_slot) {
+              nextSlotTimeStr = candidate.time_slot;
+            }
           }
 
-          if (candidate && candidate.time_slot) {
-            nextSlotTimeStr = candidate.time_slot;
+          let targetHours = 15;
+          let targetMinutes = 0;
+
+          if (nextSlotTimeStr) {
+            if (nextSlotTimeStr.includes('M')) {
+              const [timePart, modifier] = nextSlotTimeStr.split(' ');
+              let [hours, minutes] = timePart.split(':').map(Number);
+              if (modifier === 'PM' && hours < 12) hours += 12;
+              if (modifier === 'AM' && hours === 12) hours = 0;
+              targetHours = hours;
+              targetMinutes = minutes;
+            } else {
+              const [hours, minutes] = nextSlotTimeStr.split(':').map(Number);
+              targetHours = hours;
+              targetMinutes = minutes || 0;
+            }
           }
+
+          baseDate.setHours(targetHours, targetMinutes, 0, 0);
+
+          const year = baseDate.getFullYear();
+          const month = String(baseDate.getMonth() + 1).padStart(2, '0');
+          const day = String(baseDate.getDate()).padStart(2, '0');
+          const hours = String(baseDate.getHours()).padStart(2, '0');
+          const minutes = String(baseDate.getMinutes()).padStart(2, '0');
+          const seconds = String(baseDate.getSeconds()).padStart(2, '0');
+
+          targetScheduledTime = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+08:00`;
+        } else {
+          const formattedScheduledAt = scheduledAt.endsWith('Z') || scheduledAt.includes('+') ? scheduledAt : `${scheduledAt}:00+08:00`;
+          const parsedDate = new Date(formattedScheduledAt);
+          if (isNaN(parsedDate.getTime())) {
+            return NextResponse.json({ error: 'Format masa jadual tidak sah.' }, { status: 400 });
+          }
+          targetScheduledTime = parsedDate.toISOString();
         }
-
-        let targetHours = 15;
-        let targetMinutes = 0;
-
-        if (nextSlotTimeStr) {
-          if (nextSlotTimeStr.includes('M')) {
-            const [timePart, modifier] = nextSlotTimeStr.split(' ');
-            let [hours, minutes] = timePart.split(':').map(Number);
-            if (modifier === 'PM' && hours < 12) hours += 12;
-            if (modifier === 'AM' && hours === 12) hours = 0;
-            targetHours = hours;
-            targetMinutes = minutes;
-          } else {
-            const [hours, minutes] = nextSlotTimeStr.split(':').map(Number);
-            targetHours = hours;
-            targetMinutes = minutes || 0;
-          }
-        }
-
-        baseDate.setHours(targetHours, targetMinutes, 0, 0);
-
-        const year = baseDate.getFullYear();
-        const month = String(baseDate.getMonth() + 1).padStart(2, '0');
-        const day = String(baseDate.getDate()).padStart(2, '0');
-        const hours = String(baseDate.getHours()).padStart(2, '0');
-        const minutes = String(baseDate.getMinutes()).padStart(2, '0');
-        const seconds = String(baseDate.getSeconds()).padStart(2, '0');
-
-        targetScheduledTime = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+08:00`;
       } else {
-        const formattedScheduledAt = scheduledAt.endsWith('Z') || scheduledAt.includes('+') ? scheduledAt : `${scheduledAt}:00+08:00`;
-        const parsedDate = new Date(formattedScheduledAt);
-        if (isNaN(parsedDate.getTime())) {
-          return NextResponse.json({ error: 'Format masa jadual tidak sah.' }, { status: 400 });
-        }
-        targetScheduledTime = parsedDate.toISOString();
+        targetScheduledTime = new Date().toISOString();
       }
-    } else {
-      targetScheduledTime = new Date().toISOString();
+
+      recordsToInsert.push({
+        page_ids: pageIds,
+        message: message || '',
+        image_url: imageUrl || null,
+        video_url: videoUrl || null,
+        first_comment: firstComment || null,
+        comment_image_url: commentImageUrl || null,
+        scheduled_at: targetScheduledTime,
+        status: 'pending',
+        profile: activeProfile,
+        user_id: userId,
+      });
     }
 
-    const { error: insertError } = await supabase.from('scheduled_posts').insert({
-      page_ids: pageIds,
-      message: message || '',
-      image_url: imageUrl || null,
-      video_url: videoUrl || null,
-      first_comment: firstComment || null,
-      comment_image_url: commentImageUrl || null,
-      scheduled_at: targetScheduledTime,
-      status: 'pending',
-      profile: activeProfile,
-      user_id: userId,
-    });
+    const { error: insertError } = await supabase.from('scheduled_posts').insert(recordsToInsert);
 
     if (insertError) {
       return NextResponse.json({ error: `Gagal menjadualkan pos: ${insertError.message}` }, { status: 500 });
