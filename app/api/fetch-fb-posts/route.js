@@ -15,7 +15,7 @@ export async function GET(request) {
       return NextResponse.json({ error: 'User ID diperlukan' }, { status: 400 });
     }
 
-    // Ambil data page menggunakan struktur lajur yang standard
+    // Ambil semua senarai Page milik user
     const { data: pages, error: pageError } = await supabase
       .from('pages')
       .select('*')
@@ -28,8 +28,8 @@ export async function GET(request) {
 
     let allFetchedPosts = [];
 
+    // Gelung setiap Page untuk tarik pos langsung dari Facebook Graph API
     for (const page of pages) {
-      // Sesuaikan nama lajur mengikut database anda (cth: page_id atau id, page_name atau name)
       const pageId = page.page_id || page.id;
       const pageName = page.page_name || page.name || 'Facebook Page';
       const accessToken = page.access_token || page.token;
@@ -45,7 +45,7 @@ export async function GET(request) {
         if (fbData && fbData.data) {
           fbData.data.forEach((p) => {
             allFetchedPosts.push({
-              id: p.id,
+              id: `fb_${p.id}`,
               page_id: pageId,
               page_name: pageName,
               message: p.message || '',
