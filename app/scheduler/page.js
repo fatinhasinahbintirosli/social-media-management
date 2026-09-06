@@ -20,7 +20,10 @@ export default function SchedulerPage() {
   const [imageUrl, setImageUrl] = useState('');
   const [commentImageUrl, setCommentImageUrl] = useState('');
   const [firstComment, setFirstComment] = useState('');
-  const [scheduledAt, setScheduledAt] = useState('');
+  
+  // State untuk menyimpan senarai pelbagai tarikh/masa manual
+  const [manualSchedules, setManualSchedules] = useState(['']);
+  
   const [postMode, setPostMode] = useState('now'); 
   const [currentProfile, setCurrentProfile] = useState('');
   const [loading, setLoading] = useState(false);
@@ -273,6 +276,22 @@ export default function SchedulerPage() {
     if (file) await processAndUploadFile(file, setCommentImageUrl, setCommentFileUploading);
   };
 
+  // Fungsi tambah/buang tarikh manual
+  const handleAddScheduleField = () => {
+    setManualSchedules([...manualSchedules, '']);
+  };
+
+  const handleScheduleChange = (index, value) => {
+    const updated = [...manualSchedules];
+    updated[index] = value;
+    setManualSchedules(updated);
+  };
+
+  const handleRemoveScheduleField = (index) => {
+    const updated = manualSchedules.filter((_, i) => i !== index);
+    setManualSchedules(updated.length > 0 ? updated : ['']);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (selectedPages.length === 0) return alert('Sila pilih sekurang-kurangnya satu Facebook Page.');
@@ -293,6 +312,22 @@ export default function SchedulerPage() {
     const { data: { session } } = await supabase.auth.getSession();
     const currentUserId = session ? session.user.id : null;
 
+    // Sediakan nilai scheduledAt mengikut mod
+    let payloadScheduledAt = null;
+    if (postMode === 'auto') {
+      payloadScheduledAt = 'auto-queue';
+    } else if (postMode === 'manual') {
+      // Hantar senarai manualSchedules yang tidak kosong
+      const validSchedules = manualSchedules.filter(s => s.trim() !== '');
+      if (validSchedules.length === 0) {
+        setLoading(false);
+        return alert('Sila masukkan sekurang-kurangnya satu tarikh & masa manual.');
+      }
+      payloadScheduledAt = validSchedules; // Hantar array
+    } else {
+      payloadScheduledAt = null; // Pos sekarang
+    }
+
     const payload = {
       pageIds: selectedPages,
       message,
@@ -300,7 +335,7 @@ export default function SchedulerPage() {
       videoUrl: finalVideoUrl,
       firstComment: firstComment || null,
       commentImageUrl: commentImageUrl || null,
-      scheduledAt: postMode === 'auto' ? 'auto-queue' : (scheduledAt || null),
+      scheduledAt: payloadScheduledAt,
       profile: currentProfile,
       userId: currentUserId,
     };
@@ -320,6 +355,7 @@ export default function SchedulerPage() {
       setImageUrl(''); 
       setFirstComment(''); 
       setCommentImageUrl('');
+      setManualSchedules(['']);
     } catch (err) {
       alert(`Ralat: ${err.message}`);
     } finally {
@@ -576,20 +612,48 @@ export default function SchedulerPage() {
 
           <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap', fontSize: '14px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', fontWeight: 'bold' }}>
-              <input type="radio" name="postMode" checked={postMode === 'now'} onChange={() => { setPostMode('now'); setScheduledAt(''); }} /> Pos Sekarang
+              <input type="radio" name="postMode" checked={postMode === 'now'} onChange={() => { setPostMode('now'); }} /> Pos Sekarang
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', fontWeight: 'bold' }}>
               <input type="radio" name="postMode" checked={postMode === 'manual'} onChange={() => setPostMode('manual')} /> Jadual Manual
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', fontWeight: 'bold' }}>
-              <input type="radio" name="postMode" checked={postMode === 'auto'} onChange={() => { setPostMode('auto'); setScheduledAt(''); }} /> Auto-Queue ({currentProfile})
+              <input type="radio" name="postMode" checked={postMode === 'auto'} onChange={() => { setPostMode('auto'); }} /> Auto-Queue ({currentProfile})
             </label>
           </div>
 
+          {/* Bahagian Pelbagai Tarikh & Masa untuk Jadual Manual */}
           {postMode === 'manual' && (
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Pilih Tarikh & Masa:</label>
-              <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc' }} />
+            <div style={{ marginBottom: '20px', background: '#fff', padding: '15px', borderRadius: '8px', border: '1px solid #ccc' }}>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '10px' }}>Pilih Tarikh & Masa:</label>
+              
+              {manualSchedules.map((sched, index) => (
+                <div key={index} style={{ display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'center' }}>
+                  <input 
+                    type="datetime-local" 
+                    value={sched} 
+                    onChange={e => handleScheduleChange(index, e.target.value)} 
+                    style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #ccc' }} 
+                  />
+                  {manualSchedules.length > 1 && (
+                    <button 
+                      type="button" 
+                      onClick={() => handleRemoveScheduleField(index)}
+                      style={{ background: '#dc3545', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+                    >
+                      Padam
+                    </button>
+                  )}
+                </div>
+              ))}
+
+              <button 
+                type="button" 
+                onClick={handleAddScheduleField}
+                style={{ background: 'none', border: 'none', color: '#0d6efd', cursor: 'pointer', fontWeight: 'bold', padding: 0, fontSize: '13px', marginTop: '5px' }}
+              >
+                + Add Schedule
+              </button>
             </div>
           )}
 
