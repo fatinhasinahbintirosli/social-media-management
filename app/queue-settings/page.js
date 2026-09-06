@@ -235,7 +235,7 @@ export default function QueueSettingsPage() {
     try {
       const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-      // Jika sedang edit, padam dulu data lama untuk kumpulan asal
+      // Jika sedang edit, padam dulu data lama kumpulan asal
       if (editingGroupId !== null) {
         const oldGroup = slotGroups.find(g => g.id === editingGroupId);
         if (oldGroup) {
@@ -250,10 +250,9 @@ export default function QueueSettingsPage() {
         }
       }
 
-      // Sediakan semua data untuk dimasukkan secara pukal (bulk insert)
-      const insertData = [];
+      // Simpan mengikut gelung per page bagi mengelakkan had saiz muatan Supabase
       for (const pageId of selectedPages) {
-        // Padam rekod lama untuk page ini supaya bersih
+        // Padam rekod lama page ini
         await supabase
           .from('queue_settings')
           .delete()
@@ -261,9 +260,10 @@ export default function QueueSettingsPage() {
           .eq('user_id', userId)
           .eq('page_id', pageId);
 
+        const pageInsertData = [];
         sortedRows.forEach(row => {
           row.days.forEach(day => {
-            insertData.push({
+            pageInsertData.push({
               day_of_week: day,
               time_slot: `${row.time}:00`,
               is_active: true,
@@ -273,15 +273,14 @@ export default function QueueSettingsPage() {
             });
           });
         });
+
+        if (pageInsertData.length > 0) {
+          const { error: insertError } = await supabase.from('queue_settings').insert(pageInsertData);
+          if (insertError) throw insertError;
+        }
       }
 
-      // Masukkan semua data sekaligus dalam satu arahan (bulk insert)
-      if (insertData.length > 0) {
-        const { error: insertError } = await supabase.from('queue_settings').insert(insertData);
-        if (insertError) throw insertError;
-      }
-
-      alert('Tetapan Custom Timeslots berjaya disimpan!');
+      alert('Tetapan Custom Timeslots berjaya disimpan untuk semua Page terpilih!');
       setIsEditing(false);
       window.location.reload();
     } catch (err) {
