@@ -21,7 +21,6 @@ export default function SchedulerPage() {
   const [commentImageUrl, setCommentImageUrl] = useState('');
   const [firstComment, setFirstComment] = useState('');
   
-  // State untuk menyimpan senarai pelbagai tarikh/masa manual
   const [manualSchedules, setManualSchedules] = useState(['']);
   
   const [postMode, setPostMode] = useState('now'); 
@@ -54,7 +53,23 @@ export default function SchedulerPage() {
     if (error) {
       console.error('Ralat memuatkan pages:', error.message);
     }
-    setPages(pData || []);
+    const loadedPages = pData || [];
+    setPages(loadedPages);
+
+    // Muat turun pilihan pages yang disimpan dalam localStorage untuk browser ini
+    const storageKey = `fb_scheduler_selected_pages_${userId}`;
+    const savedSelectedPages = localStorage.getItem(storageKey);
+    
+    if (savedSelectedPages) {
+      try {
+        const parsedIds = JSON.parse(savedSelectedPages);
+        // Pastikan ID yang disimpan benar-benar wujud dalam senarai pages semasa
+        const validIds = parsedIds.filter(id => loadedPages.some(p => p.page_id === id));
+        setSelectedPages(validIds);
+      } catch (e) {
+        setSelectedPages([]);
+      }
+    }
 
     const { data: profData, error: profError } = await supabase
       .from('profiles')
@@ -126,6 +141,18 @@ export default function SchedulerPage() {
 
     return () => subscription.unsubscribe();
   }, [supabase]);
+
+  // Simpan pilihan pages ke localStorage setiap kali ia berubah
+  useEffect(() => {
+    async function saveSelectedPagesToStorage() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session && session.user) {
+        const storageKey = `fb_scheduler_selected_pages_${session.user.id}`;
+        localStorage.setItem(storageKey, JSON.stringify(selectedPages));
+      }
+    }
+    saveSelectedPagesToStorage();
+  }, [selectedPages, supabase]);
 
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
