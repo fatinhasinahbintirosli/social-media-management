@@ -24,9 +24,14 @@ export default function SchedulerPage() {
   const [postMode, setPostMode] = useState('now'); 
   const [currentProfile, setCurrentProfile] = useState('');
   const [loading, setLoading] = useState(false);
-  const [fileUploading, setFileUploading] = useState(false);
+  
+  // Status loading diasingkan supaya fail utama dan komen boleh upload serentak
+  const [mainFileUploading, setMainFileUploading] = useState(false);
+  const [commentFileUploading, setCommentFileUploading] = useState(false);
+
   const [fetchingPages, setFetchingPages] = useState(true);
-  const [isDragging, setIsDragging] = useState(false);
+  const [isDraggingMain, setIsDraggingMain] = useState(false);
+  const [isDraggingComment, setIsDraggingComment] = useState(false);
 
   const supabase = useMemo(() => {
     return createClient(
@@ -221,10 +226,11 @@ export default function SchedulerPage() {
     window.location.href = fbLoginUrl;
   };
 
-  const processAndUploadFile = async (file, setUrlState) => {
+  // Fungsi umum untuk upload fail ke Supabase Storage
+  const processAndUploadFile = async (file, setUrlState, setLoadingState) => {
     if (!file) return;
 
-    setFileUploading(true);
+    setLoadingState(true);
     const fileExt = file.name.split('.').pop();
     const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
     
@@ -238,31 +244,37 @@ export default function SchedulerPage() {
       const { data: publicUrlData } = supabase.storage.from('post-media').getPublicUrl(fileName);
       setUrlState(publicUrlData.publicUrl);
     }
-    setFileUploading(false);
+    setLoadingState(false);
   };
 
-  const handleFileUpload = async (e, setUrlState) => {
+  const handleMainFileUpload = async (e) => {
     const file = e.target.files[0];
-    await processAndUploadFile(file, setUrlState);
+    await processAndUploadFile(file, setImageUrl, setMainFileUploading);
   };
 
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
+  const handleCommentFileUpload = async (e) => {
+    const file = e.target.files[0];
+    await processAndUploadFile(file, setCommentImageUrl, setCommentFileUploading);
   };
 
-  const handleDragLeave = (e) => {
+  // Drag and Drop Handlers untuk Media Utama
+  const handleMainDragOver = (e) => { e.preventDefault(); setIsDraggingMain(true); };
+  const handleMainDragLeave = (e) => { e.preventDefault(); setIsDraggingMain(false); };
+  const handleMainDrop = async (e) => {
     e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = async (e, setUrlState) => {
-    e.preventDefault();
-    setIsDragging(false);
+    setIsDraggingMain(false);
     const file = e.dataTransfer.files[0];
-    if (file) {
-      await processAndUploadFile(file, setUrlState);
-    }
+    if (file) await processAndUploadFile(file, setImageUrl, setMainFileUploading);
+  };
+
+  // Drag and Drop Handlers untuk Komen
+  const handleCommentDragOver = (e) => { e.preventDefault(); setIsDraggingComment(true); };
+  const handleCommentDragLeave = (e) => { e.preventDefault(); setIsDraggingComment(false); };
+  const handleCommentDrop = async (e) => {
+    e.preventDefault();
+    setIsDraggingComment(false);
+    const file = e.dataTransfer.files[0];
+    if (file) await processAndUploadFile(file, setCommentImageUrl, setCommentFileUploading);
   };
 
   const handleSubmit = async (e) => {
@@ -473,39 +485,38 @@ export default function SchedulerPage() {
             <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Tulis kapsyen pos anda..." style={{ width: '100%', height: '90px', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
           </div>
 
-          {/* Kotak Muat Naik dengan Sokongan Drag and Drop */}
+          {/* Kotak Muat Naik Utama dengan Drag and Drop */}
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Upload Gambar / Video Utama (Pilihan):</label>
             
             <div 
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, setImageUrl)}
+              onDragOver={handleMainDragOver}
+              onDragLeave={handleMainDragLeave}
+              onDrop={handleMainDrop}
               style={{
-                border: `2px dashed ${isDragging ? '#0d6efd' : '#ccc'}`,
+                border: `2px dashed ${isDraggingMain ? '#0d6efd' : '#ccc'}`,
                 borderRadius: '8px',
                 padding: '20px',
                 textAlign: 'center',
-                background: isDragging ? '#e7f3ff' : '#fff',
+                background: isDraggingMain ? '#e7f3ff' : '#fff',
                 cursor: 'pointer',
                 marginBottom: '8px',
                 transition: 'all 0.2s ease-in-out'
               }}
-              onClick={() => document.getElementById('mainFile однакоInput').click()}
+              onClick={() => document.getElementById('mainFileInput').click()}
             >
               <div style={{ fontSize: '24px', marginBottom: '5px' }}>📁</div>
               <p style={{ margin: '0 0 5px 0', fontSize: '13px', fontWeight: 'bold', color: '#333' }}>
-                Seret & Lepas (Drag & Drop) fail gambar atau video di sini
+                Seret & Lepas (Drag & Drop) fail gambar atau video utama di sini
               </p>
               <p style={{ margin: 0, fontSize: '12px', color: '#666' }}>
                 Atau klik untuk pilih fail dari komputer
               </p>
               <input 
-                id="mainFile Input"
+                id="mainFileInput"
                 type="file" 
                 accept="image/*,video/*"
-                onChange={(e) => handleFileUpload(e, setImageUrl)} 
-                disabled={fileUploading}
+                onChange={handleMainFileUpload} 
                 style={{ display: 'none' }} 
               />
             </div>
@@ -517,7 +528,7 @@ export default function SchedulerPage() {
               placeholder="Atau salin/tampal URL gambar/video..." 
               style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} 
             />
-            {fileUploading && <small style={{ color: '#0d6efd' }}>Sedang memuat naik fail ke storage...</small>}
+            {mainFileUploading && <small style={{ color: '#0d6efd' }}>Sedang memuat naik fail utama ke storage...</small>}
           </div>
 
           <div style={{ marginBottom: '15px' }}>
@@ -525,15 +536,38 @@ export default function SchedulerPage() {
             <textarea value={firstComment} onChange={e => setFirstComment(e.target.value)} placeholder="Tulis komen pertama (pilihan)..." style={{ width: '100%', height: '60px', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
           </div>
 
+          {/* Kotak Muat Naik Komen Pertama dengan Drag and Drop (Saiz Kecil) */}
           <div style={{ marginBottom: '20px' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Gambar untuk First Comment (Pilihan):</label>
-            <input 
-              type="file" 
-              accept="image/*"
-              onChange={(e) => handleFileUpload(e, setCommentImageUrl)} 
-              disabled={fileUploading}
-              style={{ marginBottom: '5px', display: 'block', fontSize: '13px' }} 
-            />
+            
+            <div 
+              onDragOver={handleCommentDragOver}
+              onDragLeave={handleCommentDragLeave}
+              onDrop={handleCommentDrop}
+              style={{
+                border: `2px dashed ${isDraggingComment ? '#0d6efd' : '#ccc'}`,
+                borderRadius: '6px',
+                padding: '12px',
+                textAlign: 'center',
+                background: isDraggingComment ? '#e7f3ff' : '#fff',
+                cursor: 'pointer',
+                marginBottom: '8px',
+                transition: 'all 0.2s ease-in-out'
+              }}
+              onClick={() => document.getElementById('commentFileInput').click()}
+            >
+              <p style={{ margin: '0 0 3px 0', fontSize: '12px', fontWeight: 'bold', color: '#333' }}>
+                📁 Seret & Lepas gambar komen di sini atau klik
+              </p>
+              <input 
+                id="commentFileInput"
+                type="file" 
+                accept="image/*"
+                onChange={handleCommentFileUpload} 
+                style={{ display: 'none' }} 
+              />
+            </div>
+
             <input 
               type="text" 
               value={commentImageUrl} 
@@ -541,6 +575,7 @@ export default function SchedulerPage() {
               placeholder="Atau URL gambar komen..." 
               style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} 
             />
+            {commentFileUploading && <small style={{ color: '#0d6efd' }}>Sedang memuat naik gambar komen...</small>}
           </div>
 
           <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap', fontSize: '14px' }}>
@@ -564,7 +599,7 @@ export default function SchedulerPage() {
 
           <button 
             type="submit" 
-            disabled={loading || fileUploading} 
+            disabled={loading || mainFileUploading || commentFileUploading} 
             style={{ width: '100%', padding: '12px', background: '#0d6efd', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '15px', cursor: 'pointer' }}
           >
             {loading ? 'Memproses...' : (postMode === 'now' ? 'Hantar Sekarang' : `Masukkan ke Auto-Queue (${currentProfile})`)}
