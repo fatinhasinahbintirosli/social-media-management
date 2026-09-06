@@ -18,10 +18,15 @@ export default function QueueSettingsPage() {
   const [profiles, setProfiles] = useState([]);
   const [currentProfile, setCurrentProfile] = useState('');
   const [pages, setPages] = useState([]);
-  const [selectedPages, setSelectedPages] = useState([]);
-  const [rows, setRows] = useState([]);
+  const [slotGroups, setSlotGroups] = useState([]); // Menyimpan kumpulan timeslots mengikut set pages
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState(null);
+
+  // State untuk borang tambah/edit kumpulan
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState(null);
+  const [selectedPages, setSelectedPages] = useState([]);
+  const [rows, setRows] = useState([]);
 
   const supabase = useMemo(() => {
     return createClient(
@@ -43,17 +48,14 @@ export default function QueueSettingsPage() {
       setUserId(currentUserId);
 
       // 1. Ambil profil milik user
-      const { data: profData, error: profError } = await supabase
+      const { data: profData } = await supabase
         .from('profiles')
         .select('*')
         .eq('user_id', currentUserId)
         .order('created_at', { ascending: true });
 
-      if (profError) {
-        console.error('Ralat memuatkan profil:', profError);
-      } else if (profData && profData.length > 0) {
+      if (profData && profData.length > 0) {
         setProfiles(profData);
-
         const savedProfile = localStorage.getItem('fb_scheduler_profile');
         const profileExists = profData.some(p => p.profile_name === savedProfile);
 
@@ -66,89 +68,125 @@ export default function QueueSettingsPage() {
       }
 
       // 2. Ambil Pages milik user
-      const { data: pData, error: pError } = await supabase
+      const { data: pData } = await supabase
         .from('pages')
         .select('page_id, page_name')
         .eq('user_id', currentUserId)
         .order('page_name', { ascending: true });
 
-      if (pError) {
-        console.error('Ralat memuatkan pages:', pError);
-      } else {
-        setPages(pData || []);
-        // Auto-pilih semua page pada permulaan jika ada
-        if (pData && pData.length > 0) {
-          setSelectedPages(pData.map(p => p.page_id));
-        }
-      }
-
+      setPages(pData || []);
       setLoading(false);
     }
 
     initData();
   }, [supabase]);
 
-  // Muat turun timeslot apabila profil atau page yang dipilih berubah
+  // Muat turun semua tetapan timeslots untuk profil semasa dan kumpulkan mengikut padanan page_id
   useEffect(() => {
-    if (!currentProfile || !userId || selectedPages.length === 0) {
-      setRows([]);
-      return;
-    }
+    if (!currentProfile || !userId) return;
 
     async function fetchSettings() {
       setLoading(true);
-      
-      // Ambil tetapan timeslot yang sepadan dengan user, profil, dan page terpilih (ambil page pertama dalam pilihan atau gabungan)
-      // Untuk ringkas, kita tapis mengikut page_id pertama yang dipilih atau ambil semua jika guna page_id
-      const targetPageId = selectedPages[0] || null;
-
-      let query = supabase
+      const { data, error } = await supabase
         .from('queue_settings')
         .select('*')
         .eq('profile', currentProfile)
         .eq('user_id', userId);
 
-      if (targetPageId) {
-        query = query.eq('page_id', targetPageId);
-      }
-
-      const { data, error } = await query;
-
       if (error) {
-        console.error('Ralat memuatkan queue:', error);
+        console.error('Ralat memuatkan queue settings:', error);
         setLoading(false);
         return;
       }
 
-      const grouped = {};
+      // Kumpulkan data mengikut susunan time_slot dan day_of_week untuk mengenalpasti page mana yang berkongsi jadual sama
+      const pageToSlots = {};
       (data || []).forEach(item => {
-        if (!item.time_slot) return;
-        const timeStr = item.time_slot.substring(0, 5);
-        if (!grouped[timeStr]) {
-          grouped[timeStr] = [];
+        if (!item.page_id || !item.time_slot) return;
+        if (!pageToSlots[item.page_id]) {
+          pageToSlots[item.page_id] = [];
         }
-        grouped[timeStr].push(item.day_of_week);
+        pageToSlots[item.page_id].push({
+          time: item.time_slot.substring(0, 5),
+          day: item.day_of_week
+        });
       });
 
-      let formattedRows = Object.keys(grouped).map(time => ({
-        time,
-        days: grouped[time]
+      // Gabungkan page yang mempunyai senarai timeslot yang seiras ke dalam satu kumpulan
+      const groupMap = {};
+      Object.keys(pageToSlots).forEach(pageId => {
+        const slots = pageToSlots[pageId];
+        // Buat tandatangan unik berdasarkan slot masa & hari
+        const signature = JSON.stringify(slots.sort((a, b) => a.time.localeCompare(b.time) || a.day - b.day));
+        
+        if (!groupMap[signature]) {
+          groupMap[signature] = {
+            pageIds: [],
+            slots: slots
+          };
+        }
+        groupMap[signature].pageIds.push(pageId);
+      });
+
+      const formattedGroups = Object.keys(groupMap).map((sig, idx) => ({
+        id: idx + 1,
+        pageIds: groupMap[sig].pageIds,
+        rows: formatGroupRows(groupMap[sig].slots),
+        isOpen: false
       }));
 
-      formattedRows.sort((a, b) => a.time.localeCompare(b.time));
-      setRows(formattedRows);
+      setSlotGroups(formattedGroups);
       setLoading(false);
     }
 
     fetchSettings();
-  }, [currentProfile, userId, selectedPages, supabase]);
+  }, [currentProfile, userId, supabase]);
+
+  const formatGroupRows = (rawSlots) => {
+    const grouped = {};
+    rawSlots.forEach(s => {
+      if (!grouped[s.time]) {
+        grouped[s.time] = [];
+      }
+      if (!grouped[s.time].includes(s.day)) {
+        grouped[s.time].push(s.day);
+      }
+    });
+
+    let rowsArr = Object.keys(grouped).map(time => ({
+      time,
+      days: grouped[time]
+    }));
+    rowsArr.sort((a, b) => a.time.localeCompare(b.time));
+    return rowsArr;
+  };
 
   const handleProfileChange = (profileName) => {
     setCurrentProfile(profileName);
     localStorage.setItem('fb_scheduler_profile', profileName);
+    setIsEditing(false);
   };
 
-  const handlePageToggle = (pageId) => {
+  const handleStartCreate = () => {
+    setSelectedPages(pages.map(p => p.page_id)); // Default pilih semua
+    const allDays = DAYS.map(d => d.index);
+    setRows([{ time: '09:00', days: allDays }]);
+    setEditingGroupId(null);
+    setIsEditing(true);
+  };
+
+  const handleStartEdit = (group) => {
+    setSelectedPages(group.pageIds);
+    setRows(JSON.parse(JSON.stringify(group.rows))); // Deep copy
+    setEditingGroupId(group.id);
+    setIsEditing(true);
+  };
+
+  const handleToggleGroupOpen = (groupId) => {
+    setSlotGroups(slotGroups.map(g => g.id === groupId ? { ...g, isOpen: !g.isOpen } : g));
+  };
+
+  const handlePageToggleInForm = (pageId) => {
     if (selectedPages.includes(pageId)) {
       if (selectedPages.length === 1) {
         alert('Sekurang-kurangnya satu Page perlu dipilih.');
@@ -186,29 +224,41 @@ export default function QueueSettingsPage() {
     setRows(updated);
   };
 
-  const clearAll = () => {
-    setRows([]);
-  };
+  const saveGroupSettings = async () => {
+    if (!userId || selectedPages.length === 0 || rows.length === 0) {
+      alert('Sila pilih sekurang-kurangnya satu Page dan tetapkan timeslot.');
+      return;
+    }
 
-  const saveSettings = async () => {
-    if (!userId || selectedPages.length === 0) return;
     setLoading(true);
     try {
       const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-      // Simpan untuk setiap page yang dipilih
+      // Jika sedang edit, padam dulu data lama untuk page-page yang terlibat dalam kumpulan ini
+      if (editingGroupId !== null) {
+        const oldGroup = slotGroups.find(g => g.id === editingGroupId);
+        if (oldGroup) {
+          for (const pId of oldGroup.pageIds) {
+            await supabase
+              .from('queue_settings')
+              .delete()
+              .eq('profile', currentProfile)
+              .eq('user_id', userId)
+              .eq('page_id', pId);
+          }
+        }
+      }
+
+      // Simpan data baharu untuk setiap page yang dipilih
       for (const pageId of selectedPages) {
-        // 1. Padam data lama untuk profil, user & page ini
-        const { error: deleteError } = await supabase
+        // Padam rekod lama page ini jika ada
+        await supabase
           .from('queue_settings')
           .delete()
           .eq('profile', currentProfile)
           .eq('user_id', userId)
           .eq('page_id', pageId);
 
-        if (deleteError) throw deleteError;
-
-        // 2. Masukkan data baharu
         const insertData = [];
         sortedRows.forEach(row => {
           row.days.forEach(day => {
@@ -229,10 +279,32 @@ export default function QueueSettingsPage() {
         }
       }
 
-      setRows(sortedRows);
-      alert(`Tetapan Timeslot berjaya disimpan untuk profil ${currentProfile} pada Page terpilih!`);
+      alert('Tetapan Custom Timeslots berjaya disimpan!');
+      setIsEditing(false);
+      // Muat semula halaman / data
+      window.location.reload();
     } catch (err) {
       alert(`Ralat menyimpan: ${err.message}`);
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteGroup = async (group) => {
+    if (!confirm('Adakah anda pasti mahu memadam timeslots untuk page ini?')) return;
+    setLoading(true);
+    try {
+      for (const pId of group.pageIds) {
+        await supabase
+          .from('queue_settings')
+          .delete()
+          .eq('profile', currentProfile)
+          .eq('user_id', userId)
+          .eq('page_id', pId);
+      }
+      setSlotGroups(slotGroups.filter(g => g.id !== group.id));
+      alert('Berjaya dipadam!');
+    } catch (err) {
+      alert(`Ralat memadam: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -247,7 +319,8 @@ export default function QueueSettingsPage() {
           <Link href="/scheduler" style={{ color: '#1877f2', textDecoration: 'none', fontSize: '14px', display: 'inline-block', marginBottom: '10px' }}>
             ← Kembali ke Scheduler
           </Link>
-          <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>Create Timeslot ({currentProfile})</h1>
+          <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>Custom Timeslots ({currentProfile})</h1>
+          <p style={{ fontSize: '13px', color: '#a1a1aa', margin: '5px 0 0 0' }}>Maximize engagement with your audience and ensure that your posts get seen at the right time by selecting your best days.</p>
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -276,110 +349,184 @@ export default function QueueSettingsPage() {
           })}
         </div>
 
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button onClick={clearAll} style={{ background: '#222', color: '#fff', border: '1px solid #444', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer' }}>Clear all</button>
-          <button onClick={addRow} style={{ background: '#222', color: '#fff', border: '1px solid #444', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer' }}>+ Add Timeslot</button>
-          <button onClick={saveSettings} disabled={loading} style={{ background: '#f97316', color: '#fff', border: 'none', padding: '8px 18px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
-            {loading ? 'Menyimpan...' : 'Save Changes'}
+        {!isEditing && (
+          <button onClick={handleStartCreate} style={{ background: '#f97316', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+            + Add Timeslot
           </button>
-        </div>
-      </div>
-
-      {/* Step 1: Pilih Pages */}
-      <div style={{ backgroundColor: '#18181b', padding: '20px', borderRadius: '8px', border: '1px solid #27272a', marginBottom: '25px' }}>
-        <h3 style={{ fontSize: '15px', marginTop: 0, marginBottom: '10px', color: '#a1a1aa' }}>Step 1 - Select Page(s)</h3>
-        {pages.length === 0 ? (
-          <p style={{ fontSize: '13px', color: '#71717a', margin: 0 }}>Tiada Page dijumpai.</p>
-        ) : (
-          <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
-            {pages.map(p => {
-              const isSelected = selectedPages.includes(p.page_id);
-              return (
-                <button
-                  key={p.page_id}
-                  type="button"
-                  onClick={() => handlePageToggle(p.page_id)}
-                  style={{
-                    padding: '8px 14px',
-                    borderRadius: '6px',
-                    border: `1px solid ${isSelected ? '#1877f2' : '#3f3f46'}`,
-                    background: isSelected ? '#1e3a8a' : '#27272a',
-                    color: '#fff',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  {isSelected ? '✓ ' : ''}{p.page_name}
-                </button>
-              );
-            })}
-          </div>
         )}
       </div>
 
-      {/* Step 2: Create Timeslots */}
-      <div style={{ backgroundColor: '#18181b', borderRadius: '8px', border: '1px solid #27272a', overflowX: 'auto' }}>
-        <div style={{ padding: '16px', borderBottom: '1px solid #27272a', fontWeight: 'bold', color: '#a1a1aa', fontSize: '15px' }}>
-          Step 2 - Create Timeslots
-        </div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '14px' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid #27272a', color: '#a1a1aa' }}>
-              <th style={{ padding: '16px', width: '180px' }}>Time Slots</th>
-              {DAYS.map(d => <th key={d.index} style={{ padding: '16px' }}>{d.label}</th>)}
-              <th style={{ padding: '16px', width: '80px' }}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan="9" style={{ padding: '30px', color: '#71717a' }}>Memuatkan timeslot...</td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan="9" style={{ padding: '30px', color: '#71717a' }}>Tiada timeslot ditetapkan untuk Page terpilih. Sila klik &quot;+ Add Timeslot&quot;.</td>
-              </tr>
-            ) : (
-              rows.map((row, rowIndex) => (
-                <tr key={rowIndex} style={{ borderBottom: '1px solid #27272a' }}>
-                  <td style={{ padding: '16px' }}>
-                    <input 
-                      type="time" 
-                      value={row.time} 
-                      onChange={(e) => updateTime(rowIndex, e.target.value)}
-                      style={{ backgroundColor: '#27272a', color: '#fff', border: '1px solid #3f3f46', padding: '6px 10px', borderRadius: '6px', colorScheme: 'dark' }}
-                    />
-                  </td>
-                  {DAYS.map(d => (
-                    <td key={d.index} style={{ padding: '16px' }}>
+      {/* Paparan Borang Edit / Tambah */}
+      {isEditing ? (
+        <div style={{ backgroundColor: '#18181b', padding: '25px', borderRadius: '8px', border: '1px solid #27272a', marginBottom: '25px' }}>
+          <h3 style={{ fontSize: '16px', marginTop: 0, marginBottom: '15px', color: '#fff' }}>
+            {editingGroupId !== null ? 'Edit Custom Timeslots' : 'Cipta Custom Timeslots Baharu'}
+          </h3>
+
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', color: '#a1a1aa' }}>Pilih Page(s):</label>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              {pages.map(p => {
+                const isSelected = selectedPages.includes(p.page_id);
+                return (
+                  <button
+                    key={p.page_id}
+                    type="button"
+                    onClick={() => handlePageToggleInForm(p.page_id)}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: '6px',
+                      border: `1px solid ${isSelected ? '#1877f2' : '#3f3f46'}`,
+                      background: isSelected ? '#1e3a8a' : '#27272a',
+                      color: '#fff',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    {isSelected ? '✓ ' : ''}{p.page_name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '20px', overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '14px' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #27272a', color: '#a1a1aa' }}>
+                  <th style={{ padding: '12px', width: '160px' }}>Time Slots</th>
+                  {DAYS.map(d => <th key={d.index} style={{ padding: '12px' }}>{d.label}</th>)}
+                  <th style={{ padding: '12px', width: '60px' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, rowIndex) => (
+                  <tr key={rowIndex} style={{ borderBottom: '1px solid #27272a' }}>
+                    <td style={{ padding: '12px' }}>
                       <input 
-                        type="checkbox" 
-                        checked={row.days.includes(d.index)}
-                        onChange={() => toggleDay(rowIndex, d.index)}
-                        style={{ width: '18px', height: '18px', accentColor: '#1877f2', cursor: 'pointer' }}
+                        type="time" 
+                        value={row.time} 
+                        onChange={(e) => updateTime(rowIndex, e.target.value)}
+                        style={{ backgroundColor: '#27272a', color: '#fff', border: '1px solid #3f3f46', padding: '6px 10px', borderRadius: '6px', colorScheme: 'dark' }}
                       />
                     </td>
-                  ))}
-                  <td style={{ padding: '16px' }}>
-                    <button onClick={() => removeRow(rowIndex)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '16px' }}>
+                    {DAYS.map(d => (
+                      <td key={d.index} style={{ padding: '12px' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={row.days.includes(d.index)}
+                          onChange={() => toggleDay(rowIndex, d.index)}
+                          style={{ width: '18px', height: '18px', accentColor: '#1877f2', cursor: 'pointer' }}
+                        />
+                      </td>
+                    ))}
+                    <td style={{ padding: '12px' }}>
+                      <button onClick={() => removeRow(rowIndex)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '16px' }}>
+                        🗑️
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div style={{ marginTop: '15px' }}>
+              <button onClick={addRow} style={{ background: '#27272a', color: '#fff', border: '1px dashed #52525b', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                + Add Time Row
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button onClick={saveGroupSettings} disabled={loading} style={{ background: '#198754', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+              {loading ? 'Menyimpan...' : 'Simpan Tetapan'}
+            </button>
+            <button onClick={() => setIsEditing(false)} style={{ background: '#27272a', color: '#fff', border: '1px solid #3f3f46', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer' }}>
+              Batal
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Senarai Kumpulan Timeslots (UI seperti rujukan gambar) */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {loading && slotGroups.length === 0 ? (
+          <div style={{ padding: '30px', textAlign: 'center', color: '#71717a' }}>Memuatkan timeslots...</div>
+        ) : slotGroups.length === 0 ? (
+          <div style={{ backgroundColor: '#18181b', padding: '30px', borderRadius: '8px', border: '1px solid #27272a', textAlign: 'center', color: '#71717a' }}>
+            Tiada custom timeslots ditetapkan untuk profil ini. Sila klik &quot;+ Add Timeslot&quot; di atas.
+          </div>
+        ) : (
+          slotGroups.map(group => {
+            // Cari nama-nama page berdasarkan pageIds
+            const groupPages = pages.filter(p => group.pageIds.includes(p.page_id));
+            const displayedPages = groupPages.slice(0, 4);
+            const remainingCount = groupPages.length - 4;
+
+            return (
+              <div key={group.id} style={{ backgroundColor: '#18181b', borderRadius: '8px', border: '1px solid #27272a', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', flexWrap: 'wrap', gap: '15px' }}>
+                  
+                  {/* Senarai badge Page */}
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {displayedPages.map(p => (
+                      <span key={p.page_id} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#27272a', border: '1px solid #3f3f46', padding: '6px 12px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold', color: '#fff' }}>
+                        f {p.page_name}
+                      </span>
+                    ))}
+                    {remainingCount > 0 && (
+                      <span style={{ background: '#27272a', border: '1px solid #3f3f46', padding: '6px 10px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold', color: '#a1a1aa' }}>
+                        +{remainingCount}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Butang Tindakan (Edit, Padam, Kembang/Tutup) */}
+                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center', color: '#a1a1aa' }}>
+                    <button onClick={() => handleStartEdit(group)} title="Edit" style={{ background: 'none', border: 'none', color: '#a1a1aa', cursor: 'pointer', fontSize: '16px' }}>
+                      ✏️
+                    </button>
+                    <button onClick={() => handleDeleteGroup(group)} title="Padam" style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '16px' }}>
                       🗑️
                     </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+                    <button onClick={() => handleToggleGroupOpen(group.id)} style={{ background: 'none', border: 'none', color: '#a1a1aa', cursor: 'pointer', fontSize: '16px' }}>
+                      {group.isOpen ? '▲' : '▼'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Butiran Jadual Masa (Kembang apabila arrow diklik) */}
+                {group.isOpen && (
+                  <div style={{ borderTop: '1px solid #27272a', padding: '20px', backgroundColor: '#121212' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '13px' }}>
+                      <thead>
+                        <tr style={{ color: '#71717a', borderBottom: '1px solid #27272a' }}>
+                          <th style={{ padding: '10px' }}>Time Slots</th>
+                          {DAYS.map(d => <th key={d.index} style={{ padding: '10px' }}>{d.label}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.rows.map((r, rIdx) => (
+                          <tr key={rIdx} style={{ borderBottom: '1px solid #27272a' }}>
+                            <td style={{ padding: '10px', fontWeight: 'bold', color: '#fff' }}>{r.time}</td>
+                            {DAYS.map(d => (
+                              <td key={d.index} style={{ padding: '10px' }}>
+                                {r.days.includes(d.index) ? '✅' : '—'}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
-      
-      {rows.length > 0 && (
-        <div style={{ textAlign: 'center', marginTop: '20px' }}>
-          <button onClick={addRow} style={{ background: '#27272a', color: '#fff', border: '1px dashed #52525b', padding: '10px 24px', borderRadius: '6px', cursor: 'pointer' }}>
-            + Add Timeslot
-          </button>
-        </div>
-      )}
+
     </div>
   );
 }
