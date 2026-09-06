@@ -12,7 +12,7 @@ export default function CalendarPostsPage() {
   const [activeProfile, setActiveProfile] = useState('Default');
   
   // Tetapkan tarikh pilihan kepada hari ini (format YYYY-MM-DD)
-  const [selectedDate, setSelectedDate] = useState('2026-09-05'); // Mengikut tarikh ujian anda
+  const [selectedDate, setSelectedDate] = useState('2026-09-05');
 
   const supabase = useMemo(() => {
     return createClient(
@@ -49,34 +49,36 @@ export default function CalendarPostsPage() {
           .eq('profile', savedProfile);
 
         if (error) throw error;
-        setLocalPosts(dbPosts || []);
 
-        // 3. Ambil pos terus dari Facebook Pages (pos manual / live)
-        const res = await fetch(`/api/fetch-fb-posts?userId=${currentUserId}`);
-        const fbData = await res.json();
-        
-        let allCombined = dbPosts || [];
-        if (fbData && fbData.posts) {
-          // Elakkan pertindihan ID
-          const existingIds = new Set(allCombined.map(p => p.fb_post_id || p.id));
-          fbData.posts.forEach(fbp => {
-            if (!existingIds.has(fbp.id)) {
-              allCombined.push({
-                id: fbp.id,
-                page_id: fbp.page_id,
-                message: fbp.message,
-                scheduled_at: fbp.scheduled_at,
-                status: 'published',
-                image_url: fbp.image_url,
-                fb_post_id: fbp.id,
-                permalink_url: fbp.permalink_url,
-                is_external: true
-              });
-            }
-          });
+        // 3. Ambil pos terus dari Facebook Pages (pos manual / live luar)
+        let combinedList = dbPosts || [];
+        try {
+          const res = await fetch(`/api/fetch-fb-posts?userId=${currentUserId}`);
+          const fbData = await res.json();
+          if (fbData && fbData.posts) {
+            const existingIds = new Set(combinedList.map(p => p.fb_post_id || p.id));
+            fbData.posts.forEach(fbp => {
+              if (!existingIds.has(fbp.id) && !existingIds.has(fbp.id.replace('fb_', ''))) {
+                combinedList.push({
+                  id: fbp.id,
+                  page_id: fbp.page_id,
+                  page_ids: [fbp.page_id],
+                  message: fbp.message,
+                  scheduled_at: fbp.scheduled_at,
+                  status: 'published',
+                  image_url: fbp.image_url,
+                  fb_post_id: fbp.id,
+                  permalink_url: fbp.permalink_url,
+                  is_external: true
+                });
+              }
+            });
+          }
+        } catch (fbErr) {
+          console.error('Ralat menarik pos langsung dari Facebook:', fbErr);
         }
 
-        setLocalPosts(allCombined);
+        setLocalPosts(combinedList);
       } catch (err) {
         console.error('Ralat memuatkan data:', err);
       } finally {
@@ -100,12 +102,10 @@ export default function CalendarPostsPage() {
   // Tapis pos mengikut Page dan Tarikh
   const filteredPosts = useMemo(() => {
     return localPosts.filter(p => {
-      // Tapis Page (Sokong single page_id atau array page_ids)
       const pIds = Array.isArray(p.page_ids) ? p.page_ids : [p.page_id];
       if (selectedPageId !== 'all' && !pIds.includes(selectedPageId)) {
         return false;
       }
-      // Tapis Tarikh
       if (selectedDate && p.scheduled_at) {
         const postDate = new Date(p.scheduled_at).toISOString().split('T')[0];
         if (postDate !== selectedDate) return false;
@@ -122,19 +122,18 @@ export default function CalendarPostsPage() {
       const pIds = Array.isArray(p.page_ids) ? p.page_ids : [p.page_id];
       pIds.forEach(pid => {
         if (!pid) return;
-        const pName = pageNameMap[pid] || `Page ID: ${pid}`;
+        const pName = pageNameMap[pid] || p.page_name || `Page ID: ${pid}`;
         const pTime = p.scheduled_at ? new Date(p.scheduled_at).getTime() : 0;
         const pMsg = (p.message || '').trim();
         const pImg = p.image_url || '';
 
-        // Cari kumpulan sedia ada yang mempunyai mesej sama dan masa dalam julat 4 minit (240,000 ms)
         let foundGroup = groups.find(g => {
           const timeDiff = Math.abs(g.baseTime - pTime);
           return g.message === pMsg && g.imageUrl === pImg && timeDiff <= 4 * 60 * 1000;
         });
 
         if (foundGroup) {
-          foundGroup.ids.push(p.id);
+          if (!foundGroup.ids.includes(p.id)) foundGroup.ids.push(p.id);
           if (!foundGroup.pages.includes(pName)) {
             foundGroup.pages.push(pName);
           }
@@ -160,19 +159,15 @@ export default function CalendarPostsPage() {
     return groups;
   }, [filteredPosts, pageNameMap]);
 
-  // Fungsi padam pos (termasuk pos live dari Facebook)
+  // Fungsi padam pos
   const handleDeleteGroup = async (item) => {
     if (!confirm('Adakah anda pasti mahu memadam pos ini untuk semua Page yang berkaitan?')) return;
 
     try {
       for (const id of item.ids) {
-        // Jika ia pos tempatan (database), padam dari API schedule
         if (!String(id).startsWith('fb_')) {
           await fetch(`/api/schedule?id=${id}`, { method: 'DELETE' });
         }
-        
-        // Jika ia pos live Facebook, kita boleh hantar permintaan padam ke Facebook API (jika ada token)
-        // Untuk keselamatan, kita buang dari paparan tempatan serta-merta
       }
 
       setLocalPosts((prev) => prev.filter((p) => !item.ids.includes(p.id)));
@@ -218,7 +213,7 @@ export default function CalendarPostsPage() {
           value={selectedPageId}
           onChange={(e) => setSelectedPageId(e.target.value)}
           style={{
-            flex: 1, maxwidth: '350px', padding: '10px 14px', borderRadius: '8px',
+            flex: 1, maxWidth: '350px', padding: '10px 14px', borderRadius: '8px',
             border: '1px solid #3a3b3c', backgroundColor: '#18191a', color: '#fff', fontSize: '14px', cursor: 'pointer', outline: 'none'
           }}
         >
@@ -282,16 +277,14 @@ export default function CalendarPostsPage() {
                   <div>
                     <span style={{ 
                       padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold',
-                      backgroundColor: item.status === 'published' ? '#d4edda' : '#fff3cd',
-                      color: item.status === 'published' ? '#155724' : '#856404'
+                      backgroundColor: '#d4edda', color: '#155724'
                     }}>
-                      {item.status ? item.status.toUpperCase() : 'PUBLISHED'}
+                      PUBLISHED
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Tindakan (Go to Post & Delete) */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '130px' }}>
                 {item.permalink_urls.length > 0 && (
                   <a 
@@ -307,7 +300,6 @@ export default function CalendarPostsPage() {
                   </a>
                 )}
                 
-                {/* Butang Padam */}
                 <button
                   onClick={() => handleDeleteGroup(item)}
                   style={{ 
