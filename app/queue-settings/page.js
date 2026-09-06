@@ -226,6 +226,7 @@ export default function QueueSettingsPage() {
     setRows(updated);
   };
 
+  // Simpan data secara kelompok kecil (batch kecil) setiap 30 rekod untuk mengelakkan had saiz payload Supabase
   const saveGroupSettings = async () => {
     if (!userId || selectedPages.length === 0 || rows.length === 0) {
       alert('Sila pilih sekurang-kurangnya satu Page dan tetapan timeslot.');
@@ -236,7 +237,6 @@ export default function QueueSettingsPage() {
     try {
       const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-      // Jika sedang edit, padam dulu data lama kumpulan asal
       if (editingGroupId !== null) {
         const oldGroup = slotGroups.find(g => g.id === editingGroupId);
         if (oldGroup) {
@@ -251,7 +251,7 @@ export default function QueueSettingsPage() {
         }
       }
 
-      // Simpan satu persatu mengikut page (Sequential Loop) bagi mengelakkan limit payload Supabase
+      // Padam dahulu rekod lama untuk setiap page yang dipilih
       for (const pageId of selectedPages) {
         await supabase
           .from('queue_settings')
@@ -259,11 +259,14 @@ export default function QueueSettingsPage() {
           .eq('profile', currentProfile)
           .eq('user_id', userId)
           .eq('page_id', pageId);
+      }
 
-        const pageInsertData = [];
+      // Bina senarai penuh rekod yang hendak dimasukkan
+      const allInsertData = [];
+      for (const pageId of selectedPages) {
         sortedRows.forEach(row => {
           row.days.forEach(day => {
-            pageInsertData.push({
+            allInsertData.push({
               day_of_week: day,
               time_slot: `${row.time}:00`,
               is_active: true,
@@ -273,11 +276,14 @@ export default function QueueSettingsPage() {
             });
           });
         });
+      }
 
-        if (pageInsertData.length > 0) {
-          const { error: insertError } = await supabase.from('queue_settings').insert(pageInsertData);
-          if (insertError) throw insertError;
-        }
+      // Masukkan secara berperingkat 30 rekod setiap batch
+      const batchSize = 30;
+      for (let i = 0; i < allInsertData.length; i += batchSize) {
+        const batch = allInsertData.slice(i, i + batchSize);
+        const { error: insertError } = await supabase.from('queue_settings').insert(batch);
+        if (insertError) throw insertError;
       }
 
       alert('Tetapan Custom Timeslots berjaya disimpan untuk semua Page terpilih!');
