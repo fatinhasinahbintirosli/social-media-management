@@ -17,6 +17,8 @@ const DAYS = [
 export default function QueueSettingsPage() {
   const [profiles, setProfiles] = useState([]);
   const [currentProfile, setCurrentProfile] = useState('');
+  const [pages, setPages] = useState([]);
+  const [selectedPages, setSelectedPages] = useState([]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState(null);
@@ -40,7 +42,7 @@ export default function QueueSettingsPage() {
       const currentUserId = session.user.id;
       setUserId(currentUserId);
 
-      // Ambil profil milik user ini sahaja
+      // 1. Ambil profil milik user
       const { data: profData, error: profError } = await supabase
         .from('profiles')
         .select('*')
@@ -62,22 +64,55 @@ export default function QueueSettingsPage() {
           localStorage.setItem('fb_scheduler_profile', profData[0].profile_name);
         }
       }
+
+      // 2. Ambil Pages milik user
+      const { data: pData, error: pError } = await supabase
+        .from('pages')
+        .select('page_id, page_name')
+        .eq('user_id', currentUserId)
+        .order('page_name', { ascending: true });
+
+      if (pError) {
+        console.error('Ralat memuatkan pages:', pError);
+      } else {
+        setPages(pData || []);
+        // Auto-pilih semua page pada permulaan jika ada
+        if (pData && pData.length > 0) {
+          setSelectedPages(pData.map(p => p.page_id));
+        }
+      }
+
       setLoading(false);
     }
 
     initData();
   }, [supabase]);
 
+  // Muat turun timeslot apabila profil atau page yang dipilih berubah
   useEffect(() => {
-    if (!currentProfile || !userId) return;
+    if (!currentProfile || !userId || selectedPages.length === 0) {
+      setRows([]);
+      return;
+    }
 
     async function fetchSettings() {
       setLoading(true);
-      const { data, error } = await supabase
+      
+      // Ambil tetapan timeslot yang sepadan dengan user, profil, dan page terpilih (ambil page pertama dalam pilihan atau gabungan)
+      // Untuk ringkas, kita tapis mengikut page_id pertama yang dipilih atau ambil semua jika guna page_id
+      const targetPageId = selectedPages[0] || null;
+
+      let query = supabase
         .from('queue_settings')
         .select('*')
         .eq('profile', currentProfile)
         .eq('user_id', userId);
+
+      if (targetPageId) {
+        query = query.eq('page_id', targetPageId);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         console.error('Ralat memuatkan queue:', error);
@@ -100,22 +135,32 @@ export default function QueueSettingsPage() {
         days: grouped[time]
       }));
 
-      // Susun terus mengikut masa paling awal ke paling lambat semasa paparan dimuatkan
       formattedRows.sort((a, b) => a.time.localeCompare(b.time));
-
       setRows(formattedRows);
       setLoading(false);
     }
+
     fetchSettings();
-  }, [currentProfile, userId, supabase]);
+  }, [currentProfile, userId, selectedPages, supabase]);
 
   const handleProfileChange = (profileName) => {
     setCurrentProfile(profileName);
     localStorage.setItem('fb_scheduler_profile', profileName);
   };
 
+  const handlePageToggle = (pageId) => {
+    if (selectedPages.includes(pageId)) {
+      if (selectedPages.length === 1) {
+        alert('Sekurang-kurangnya satu Page perlu dipilih.');
+        return;
+      }
+      setSelectedPages(selectedPages.filter(id => id !== pageId));
+    } else {
+      setSelectedPages([...selectedPages, pageId]);
+    }
+  };
+
   const addRow = () => {
-    // Default tick semua hari (indeks 1, 2, 3, 4, 5, 6, 0) bila tambah row baru
     const allDays = DAYS.map(d => d.index);
     setRows([...rows, { time: '12:00', days: allDays }]);
   };
@@ -146,43 +191,46 @@ export default function QueueSettingsPage() {
   };
 
   const saveSettings = async () => {
-    if (!userId) return;
+    if (!userId || selectedPages.length === 0) return;
     setLoading(true);
     try {
-      // 1. Susun baris (rows) mengikut masa paling awal ke paling lambat sebelum simpan
       const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-      // 2. Padam data lama untuk profil & user ini sahaja
-      const { error: deleteError } = await supabase
-        .from('queue_settings')
-        .delete()
-        .eq('profile', currentProfile)
-        .eq('user_id', userId);
+      // Simpan untuk setiap page yang dipilih
+      for (const pageId of selectedPages) {
+        // 1. Padam data lama untuk profil, user & page ini
+        const { error: deleteError } = await supabase
+          .from('queue_settings')
+          .delete()
+          .eq('profile', currentProfile)
+          .eq('user_id', userId)
+          .eq('page_id', pageId);
 
-      if (deleteError) throw deleteError;
+        if (deleteError) throw deleteError;
 
-      // 3. Masukkan data baharu yang sudah tersusun berserta user_id
-      const insertData = [];
-      sortedRows.forEach(row => {
-        row.days.forEach(day => {
-          insertData.push({
-            day_of_week: day,
-            time_slot: `${row.time}:00`,
-            is_active: true,
-            profile: currentProfile,
-            user_id: userId
+        // 2. Masukkan data baharu
+        const insertData = [];
+        sortedRows.forEach(row => {
+          row.days.forEach(day => {
+            insertData.push({
+              day_of_week: day,
+              time_slot: `${row.time}:00`,
+              is_active: true,
+              profile: currentProfile,
+              user_id: userId,
+              page_id: pageId
+            });
           });
         });
-      });
 
-      if (insertData.length > 0) {
-        const { error: insertError } = await supabase.from('queue_settings').insert(insertData);
-        if (insertError) throw insertError;
+        if (insertData.length > 0) {
+          const { error: insertError } = await supabase.from('queue_settings').insert(insertData);
+          if (insertError) throw insertError;
+        }
       }
 
-      // Kemaskini state dengan paparan yang sudah tersusun
       setRows(sortedRows);
-      alert(`Tetapan Timeslot berjaya disimpan dan disusun untuk profil ${currentProfile}!`);
+      alert(`Tetapan Timeslot berjaya disimpan untuk profil ${currentProfile} pada Page terpilih!`);
     } catch (err) {
       alert(`Ralat menyimpan: ${err.message}`);
     } finally {
@@ -193,6 +241,7 @@ export default function QueueSettingsPage() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#121212', color: '#fff', padding: '30px', fontFamily: 'sans-serif' }}>
       
+      {/* Header & Navigasi */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
         <div>
           <Link href="/scheduler" style={{ color: '#1877f2', textDecoration: 'none', fontSize: '14px', display: 'inline-block', marginBottom: '10px' }}>
@@ -236,7 +285,44 @@ export default function QueueSettingsPage() {
         </div>
       </div>
 
+      {/* Step 1: Pilih Pages */}
+      <div style={{ backgroundColor: '#18181b', padding: '20px', borderRadius: '8px', border: '1px solid #27272a', marginBottom: '25px' }}>
+        <h3 style={{ fontSize: '15px', marginTop: 0, marginBottom: '10px', color: '#a1a1aa' }}>Step 1 - Select Page(s)</h3>
+        {pages.length === 0 ? (
+          <p style={{ fontSize: '13px', color: '#71717a', margin: 0 }}>Tiada Page dijumpai.</p>
+        ) : (
+          <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+            {pages.map(p => {
+              const isSelected = selectedPages.includes(p.page_id);
+              return (
+                <button
+                  key={p.page_id}
+                  type="button"
+                  onClick={() => handlePageToggle(p.page_id)}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '6px',
+                    border: `1px solid ${isSelected ? '#1877f2' : '#3f3f46'}`,
+                    background: isSelected ? '#1e3a8a' : '#27272a',
+                    color: '#fff',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  {isSelected ? '✓ ' : ''}{p.page_name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Step 2: Create Timeslots */}
       <div style={{ backgroundColor: '#18181b', borderRadius: '8px', border: '1px solid #27272a', overflowX: 'auto' }}>
+        <div style={{ padding: '16px', borderBottom: '1px solid #27272a', fontWeight: 'bold', color: '#a1a1aa', fontSize: '15px' }}>
+          Step 2 - Create Timeslots
+        </div>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '14px' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #27272a', color: '#a1a1aa' }}>
@@ -248,11 +334,11 @@ export default function QueueSettingsPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="9" style={{ padding: '30px', color: '#71717a' }}>Memuatkan timeslot untuk {currentProfile}...</td>
+                <td colSpan="9" style={{ padding: '30px', color: '#71717a' }}>Memuatkan timeslot...</td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan="9" style={{ padding: '30px', color: '#71717a' }}>Tiada timeslot untuk {currentProfile}. Sila klik &quot;+ Add Timeslot&quot; di atas.</td>
+                <td colSpan="9" style={{ padding: '30px', color: '#71717a' }}>Tiada timeslot ditetapkan untuk Page terpilih. Sila klik &quot;+ Add Timeslot&quot;.</td>
               </tr>
             ) : (
               rows.map((row, rowIndex) => (
