@@ -18,11 +18,10 @@ export default function QueueSettingsPage() {
   const [profiles, setProfiles] = useState([]);
   const [currentProfile, setCurrentProfile] = useState('');
   const [pages, setPages] = useState([]);
-  const [slotGroups, setSlotGroups] = useState([]); // Menyimpan kumpulan timeslots mengikut set pages
+  const [slotGroups, setSlotGroups] = useState([]);
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState(null);
 
-  // State untuk borang tambah/edit kumpulan
   const [isEditing, setIsEditing] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [selectedPages, setSelectedPages] = useState([]);
@@ -47,7 +46,6 @@ export default function QueueSettingsPage() {
       const currentUserId = session.user.id;
       setUserId(currentUserId);
 
-      // 1. Ambil profil milik user
       const { data: profData } = await supabase
         .from('profiles')
         .select('*')
@@ -67,7 +65,6 @@ export default function QueueSettingsPage() {
         }
       }
 
-      // 2. Ambil Pages milik user
       const { data: pData } = await supabase
         .from('pages')
         .select('page_id, page_name')
@@ -81,7 +78,6 @@ export default function QueueSettingsPage() {
     initData();
   }, [supabase]);
 
-  // Muat turun semua tetapan timeslots untuk profil semasa dan kumpulkan mengikut padanan page_id
   useEffect(() => {
     if (!currentProfile || !userId) return;
 
@@ -99,7 +95,6 @@ export default function QueueSettingsPage() {
         return;
       }
 
-      // Kumpulkan data mengikut susunan time_slot dan day_of_week untuk mengenalpasti page mana yang berkongsi jadual sama
       const pageToSlots = {};
       (data || []).forEach(item => {
         if (!item.page_id || !item.time_slot) return;
@@ -112,11 +107,9 @@ export default function QueueSettingsPage() {
         });
       });
 
-      // Gabungkan page yang mempunyai senarai timeslot yang seiras ke dalam satu kumpulan
       const groupMap = {};
       Object.keys(pageToSlots).forEach(pageId => {
         const slots = pageToSlots[pageId];
-        // Buat tandatangan unik berdasarkan slot masa & hari
         const signature = JSON.stringify(slots.sort((a, b) => a.time.localeCompare(b.time) || a.day - b.day));
         
         if (!groupMap[signature]) {
@@ -168,7 +161,7 @@ export default function QueueSettingsPage() {
   };
 
   const handleStartCreate = () => {
-    setSelectedPages(pages.map(p => p.page_id)); // Default pilih semua
+    setSelectedPages(pages.map(p => p.page_id));
     const allDays = DAYS.map(d => d.index);
     setRows([{ time: '09:00', days: allDays }]);
     setEditingGroupId(null);
@@ -177,7 +170,7 @@ export default function QueueSettingsPage() {
 
   const handleStartEdit = (group) => {
     setSelectedPages(group.pageIds);
-    setRows(JSON.parse(JSON.stringify(group.rows))); // Deep copy
+    setRows(JSON.parse(JSON.stringify(group.rows)));
     setEditingGroupId(group.id);
     setIsEditing(true);
   };
@@ -195,6 +188,14 @@ export default function QueueSettingsPage() {
       setSelectedPages(selectedPages.filter(id => id !== pageId));
     } else {
       setSelectedPages([...selectedPages, pageId]);
+    }
+  };
+
+  const handleSelectAllInForm = () => {
+    if (selectedPages.length === pages.length) {
+      setSelectedPages([]);
+    } else {
+      setSelectedPages(pages.map(p => p.page_id));
     }
   };
 
@@ -234,7 +235,7 @@ export default function QueueSettingsPage() {
     try {
       const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-      // Jika sedang edit, padam dulu data lama untuk page-page yang terlibat dalam kumpulan ini
+      // Jika sedang edit, padam dulu data lama untuk kumpulan asal
       if (editingGroupId !== null) {
         const oldGroup = slotGroups.find(g => g.id === editingGroupId);
         if (oldGroup) {
@@ -249,9 +250,10 @@ export default function QueueSettingsPage() {
         }
       }
 
-      // Simpan data baharu untuk setiap page yang dipilih
+      // Sediakan semua data untuk dimasukkan secara pukal (bulk insert)
+      const insertData = [];
       for (const pageId of selectedPages) {
-        // Padam rekod lama page ini jika ada
+        // Padam rekod lama untuk page ini supaya bersih
         await supabase
           .from('queue_settings')
           .delete()
@@ -259,7 +261,6 @@ export default function QueueSettingsPage() {
           .eq('user_id', userId)
           .eq('page_id', pageId);
 
-        const insertData = [];
         sortedRows.forEach(row => {
           row.days.forEach(day => {
             insertData.push({
@@ -272,16 +273,16 @@ export default function QueueSettingsPage() {
             });
           });
         });
+      }
 
-        if (insertData.length > 0) {
-          const { error: insertError } = await supabase.from('queue_settings').insert(insertData);
-          if (insertError) throw insertError;
-        }
+      // Masukkan semua data sekaligus dalam satu arahan (bulk insert)
+      if (insertData.length > 0) {
+        const { error: insertError } = await supabase.from('queue_settings').insert(insertData);
+        if (insertError) throw insertError;
       }
 
       alert('Tetapan Custom Timeslots berjaya disimpan!');
       setIsEditing(false);
-      // Muat semula halaman / data
       window.location.reload();
     } catch (err) {
       alert(`Ralat menyimpan: ${err.message}`);
@@ -313,7 +314,6 @@ export default function QueueSettingsPage() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#121212', color: '#fff', padding: '30px', fontFamily: 'sans-serif' }}>
       
-      {/* Header & Navigasi */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
         <div>
           <Link href="/scheduler" style={{ color: '#1877f2', textDecoration: 'none', fontSize: '14px', display: 'inline-block', marginBottom: '10px' }}>
@@ -356,16 +356,24 @@ export default function QueueSettingsPage() {
         )}
       </div>
 
-      {/* Paparan Borang Edit / Tambah */}
       {isEditing ? (
         <div style={{ backgroundColor: '#18181b', padding: '25px', borderRadius: '8px', border: '1px solid #27272a', marginBottom: '25px' }}>
-          <h3 style={{ fontSize: '16px', marginTop: 0, marginBottom: '15px', color: '#fff' }}>
-            {editingGroupId !== null ? 'Edit Custom Timeslots' : 'Cipta Custom Timeslots Baharu'}
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+            <h3 style={{ fontSize: '16px', margin: 0, color: '#fff' }}>
+              {editingGroupId !== null ? 'Edit Custom Timeslots' : 'Cipta Custom Timeslots Baharu'}
+            </h3>
+            <button 
+              type="button" 
+              onClick={handleSelectAllInForm} 
+              style={{ background: 'none', border: 'none', color: '#1877f2', cursor: 'pointer', fontSize: '13px', textDecoration: 'underline', fontWeight: 'bold' }}
+            >
+              {selectedPages.length === pages.length ? 'Nyahpilih Semua' : 'Pilih Semua Page'}
+            </button>
+          </div>
 
           <div style={{ marginBottom: '20px' }}>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', color: '#a1a1aa' }}>Pilih Page(s):</label>
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', maxHeight: '180px', overflowY: 'auto', padding: '5px' }}>
               {pages.map(p => {
                 const isSelected = selectedPages.includes(p.page_id);
                 return (
@@ -449,7 +457,6 @@ export default function QueueSettingsPage() {
         </div>
       ) : null}
 
-      {/* Senarai Kumpulan Timeslots (UI seperti rujukan gambar) */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {loading && slotGroups.length === 0 ? (
           <div style={{ padding: '30px', textAlign: 'center', color: '#71717a' }}>Memuatkan timeslots...</div>
@@ -459,7 +466,6 @@ export default function QueueSettingsPage() {
           </div>
         ) : (
           slotGroups.map(group => {
-            // Cari nama-nama page berdasarkan pageIds
             const groupPages = pages.filter(p => group.pageIds.includes(p.page_id));
             const displayedPages = groupPages.slice(0, 4);
             const remainingCount = groupPages.length - 4;
@@ -468,7 +474,6 @@ export default function QueueSettingsPage() {
               <div key={group.id} style={{ backgroundColor: '#18181b', borderRadius: '8px', border: '1px solid #27272a', overflow: 'hidden' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', flexWrap: 'wrap', gap: '15px' }}>
                   
-                  {/* Senarai badge Page */}
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                     {displayedPages.map(p => (
                       <span key={p.page_id} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#27272a', border: '1px solid #3f3f46', padding: '6px 12px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold', color: '#fff' }}>
@@ -482,7 +487,6 @@ export default function QueueSettingsPage() {
                     )}
                   </div>
 
-                  {/* Butang Tindakan (Edit, Padam, Kembang/Tutup) */}
                   <div style={{ display: 'flex', gap: '15px', alignItems: 'center', color: '#a1a1aa' }}>
                     <button onClick={() => handleStartEdit(group)} title="Edit" style={{ background: 'none', border: 'none', color: '#a1a1aa', cursor: 'pointer', fontSize: '16px' }}>
                       ✏️
@@ -496,7 +500,6 @@ export default function QueueSettingsPage() {
                   </div>
                 </div>
 
-                {/* Butiran Jadual Masa (Kembang apabila arrow diklik) */}
                 {group.isOpen && (
                   <div style={{ borderTop: '1px solid #27272a', padding: '20px', backgroundColor: '#121212' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '13px' }}>
