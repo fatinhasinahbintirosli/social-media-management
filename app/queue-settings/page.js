@@ -111,12 +111,14 @@ export default function QueueSettingsPage() {
       const groupMap = {};
       Object.keys(pageToSlots).forEach(pageId => {
         const slots = pageToSlots[pageId];
-        const signature = JSON.stringify(slots.sort((a, b) => a.time.localeCompare(b.time) || a.day - b.day));
+        // Susun slot secara konsisten supaya tandatangan seiras dikesan dengan tepat
+        const sortedSlots = [...slots].sort((a, b) => a.time.localeCompare(b.time) || a.day - b.day);
+        const signature = JSON.stringify(sortedSlots);
         
         if (!groupMap[signature]) {
           groupMap[signature] = {
             pageIds: [],
-            slots: slots
+            slots: sortedSlots
           };
         }
         groupMap[signature].pageIds.push(pageId);
@@ -226,7 +228,6 @@ export default function QueueSettingsPage() {
     setRows(updated);
   };
 
-  // Simpan data secara kelompok kecil (batch kecil) setiap 30 rekod untuk mengelakkan had saiz payload Supabase
   const saveGroupSettings = async () => {
     if (!userId || selectedPages.length === 0 || rows.length === 0) {
       alert('Sila pilih sekurang-kurangnya satu Page dan tetapan timeslot.');
@@ -235,56 +236,19 @@ export default function QueueSettingsPage() {
 
     setLoading(true);
     try {
-      const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
+      const res = await fetch('/api/queue-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          profile: currentProfile,
+          selectedPages,
+          rows
+        })
+      });
 
-      if (editingGroupId !== null) {
-        const oldGroup = slotGroups.find(g => g.id === editingGroupId);
-        if (oldGroup) {
-          for (const pId of oldGroup.pageIds) {
-            await supabase
-              .from('queue_settings')
-              .delete()
-              .eq('profile', currentProfile)
-              .eq('user_id', userId)
-              .eq('page_id', pId);
-          }
-        }
-      }
-
-      // Padam dahulu rekod lama untuk setiap page yang dipilih
-      for (const pageId of selectedPages) {
-        await supabase
-          .from('queue_settings')
-          .delete()
-          .eq('profile', currentProfile)
-          .eq('user_id', userId)
-          .eq('page_id', pageId);
-      }
-
-      // Bina senarai penuh rekod yang hendak dimasukkan
-      const allInsertData = [];
-      for (const pageId of selectedPages) {
-        sortedRows.forEach(row => {
-          row.days.forEach(day => {
-            allInsertData.push({
-              day_of_week: day,
-              time_slot: `${row.time}:00`,
-              is_active: true,
-              profile: currentProfile,
-              user_id: userId,
-              page_id: pageId
-            });
-          });
-        });
-      }
-
-      // Masukkan secara berperingkat 30 rekod setiap batch
-      const batchSize = 30;
-      for (let i = 0; i < allInsertData.length; i += batchSize) {
-        const batch = allInsertData.slice(i, i + batchSize);
-        const { error: insertError } = await supabase.from('queue_settings').insert(batch);
-        if (insertError) throw insertError;
-      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal menyimpan tetapan.');
 
       alert('Tetapan Custom Timeslots berjaya disimpan untuk semua Page terpilih!');
       setIsEditing(false);
@@ -309,6 +273,7 @@ export default function QueueSettingsPage() {
       }
       setSlotGroups(slotGroups.filter(g => g.id !== group.id));
       alert('Berjaya dipadam!');
+      window.location.reload();
     } catch (err) {
       alert(`Ralat memadam: ${err.message}`);
     } finally {
