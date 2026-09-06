@@ -89,6 +89,43 @@ export default function QueuePage() {
       }
     }
     fetchData();
+
+    // 3. Langgan perubahan Realtime dari jadual scheduled_posts secara langsung
+    const channel = supabase
+      .channel('scheduled-posts-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Dengar semua perubahan (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'scheduled_posts',
+        },
+        (payload) => {
+          setScheduledPosts((prevItems) => {
+            if (payload.eventType === 'UPDATE') {
+              // Kemaskini item yang berubah status atau maklumatnya
+              return prevItems.map((item) =>
+                item.id === payload.new.id ? payload.new : item
+              );
+            } else if (payload.eventType === 'INSERT') {
+              // Masukkan item baru ke dalam senarai jika sepadan dengan profil aktif
+              if (payload.new.profile === activeProfile) {
+                return [payload.new, ...prevItems];
+              }
+            } else if (payload.eventType === 'DELETE') {
+              // Buang item yang dipadam
+              return prevItems.filter((item) => item.id !== payload.old.id);
+            }
+            return prevItems;
+          });
+        }
+      )
+      .subscribe();
+
+    // Bersihkan langganan apabila komponen ditutup atau profil bertukar
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [supabase, activeProfile]);
 
   const handleDeleteQueue = async (id) => {
