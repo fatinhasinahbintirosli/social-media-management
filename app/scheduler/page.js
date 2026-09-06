@@ -276,7 +276,6 @@ export default function SchedulerPage() {
     if (file) await processAndUploadFile(file, setCommentImageUrl, setCommentFileUploading);
   };
 
-  // Fungsi tambah/buang tarikh manual
   const handleAddScheduleField = () => {
     setManualSchedules([...manualSchedules, '']);
   };
@@ -312,20 +311,18 @@ export default function SchedulerPage() {
     const { data: { session } } = await supabase.auth.getSession();
     const currentUserId = session ? session.user.id : null;
 
-    // Sediakan nilai scheduledAt mengikut mod
     let payloadScheduledAt = null;
     if (postMode === 'auto') {
       payloadScheduledAt = 'auto-queue';
     } else if (postMode === 'manual') {
-      // Hantar senarai manualSchedules yang tidak kosong
       const validSchedules = manualSchedules.filter(s => s.trim() !== '');
       if (validSchedules.length === 0) {
         setLoading(false);
         return alert('Sila masukkan sekurang-kurangnya satu tarikh & masa manual.');
       }
-      payloadScheduledAt = validSchedules; // Hantar array
+      payloadScheduledAt = validSchedules;
     } else {
-      payloadScheduledAt = null; // Pos sekarang
+      payloadScheduledAt = null;
     }
 
     const payload = {
@@ -475,6 +472,7 @@ export default function SchedulerPage() {
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
           <a href="/" style={{ padding: '8px 14px', background: '#6c757d', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>🏠 Laman Utama</a>
+          <Link href="/calendar" style={{ padding: '8px 14px', background: '#17a2b8', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>📅 Kalendar</Link>
           <button onClick={handleLogout} style={{ padding: '8px 14px', background: '#dc3545', color: '#fff', borderRadius: '6px', border: 'none', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}>🔒 Log Keluar</button>
         </div>
       </div>
