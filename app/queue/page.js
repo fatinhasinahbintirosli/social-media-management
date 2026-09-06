@@ -1,297 +1,520 @@
 'use client';
 
+
+
 import { useState, useEffect, useMemo } from 'react';
+
 import { createClient } from '@supabase/supabase-js';
+
 import Link from 'next/link';
 
+
+
 export default function QueuePage() {
+
   const [scheduledPosts, setScheduledPosts] = useState([]);
+
   const [pages, setPages] = useState([]);
+
   const [profiles, setProfiles] = useState(['Default']);
+
   const [activeProfile, setActiveProfile] = useState('Default');
+
   const [selectedPageId, setSelectedPageId] = useState('all');
+
   const [loading, setLoading] = useState(true);
 
+
+
   const supabase = useMemo(() => {
+
     return createClient(
+
       process.env.NEXT_PUBLIC_SUPABASE_URL, 
+
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
     );
+
   }, []);
 
+
+
   // 1. Muat turun senarai profil unik milik user dari database / localStorage
+
   useEffect(() => {
+
     async function loadInitialData() {
+
       try {
+
         const { data: { session } } = await supabase.auth.getSession();
+
         if (!session) return;
+
         const currentUserId = session.user.id;
+
+
 
         // Ambil senarai profil unik daripada jadual profiles milik user ini
+
         const { data: profData } = await supabase
+
           .from('profiles')
+
           .select('profile_name')
+
           .eq('user_id', currentUserId);
 
+
+
         if (profData && profData.length > 0) {
+
           const uniqueNames = [...new Set(profData.map(p => p.profile_name))];
+
           setProfiles(uniqueNames);
+
         }
+
+
 
         // Ambil profil aktif dari localStorage jika ada
+
         const savedProfile = localStorage.getItem('fb_scheduler_profile');
+
         if (savedProfile) {
+
           setActiveProfile(savedProfile);
+
         }
+
       } catch (err) {
+
         console.error('Ralat memuatkan profil:', err);
+
       }
+
     }
+
     loadInitialData();
+
   }, [supabase]);
 
+
+
   // 2. Muat turun Pages dan Scheduled Posts setiap kali profil aktif berubah
+
   useEffect(() => {
+
     async function fetchData() {
+
       try {
+
         setLoading(true);
+
         const { data: { session } } = await supabase.auth.getSession();
+
         if (!session) {
+
           setLoading(false);
+
           return;
+
         }
+
         const currentUserId = session.user.id;
 
+
+
         // Simpan pilihan profil terkini ke localStorage
+
         localStorage.setItem('fb_scheduler_profile', activeProfile);
 
+
+
         // Ambil pages milik user ini
+
         const { data: pData } = await supabase
+
           .from('pages')
+
           .select('page_id, page_name')
+
           .eq('user_id', currentUserId)
+
           .order('page_name', { ascending: true });
 
-        // Ambil scheduled_posts mengikut profil aktif (menggunakan .ilike untuk mengelakkan isu huruf besar/kecil) DAN user_id yang sah
+
+
+        // Ambil scheduled_posts mengikut profil aktif DAN user_id yang sah
+
         const { data: sData } = await supabase
+
           .from('scheduled_posts')
+
           .select('*')
-          .ilike('profile', activeProfile)
+
+          .eq('profile', activeProfile)
+
           .eq('user_id', currentUserId)
+
           .order('created_at', { ascending: false });
+
         
+
         setPages(pData || []);
+
         setScheduledPosts(sData || []);
+
       } catch (err) {
+
         console.error('Ralat memuatkan data:', err);
+
       } finally {
+
         setLoading(false);
+
       }
+
     }
+
     fetchData();
 
-    // 3. Langgan perubahan Realtime dari jadual scheduled_posts secara langsung
-    const channel = supabase
-      .channel('scheduled-posts-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*', // Dengar semua perubahan (INSERT, UPDATE, DELETE)
-          schema: 'public',
-          table: 'scheduled_posts',
-        },
-        (payload) => {
-          setScheduledPosts((prevItems) => {
-            if (payload.eventType === 'UPDATE') {
-              // Kemaskini item yang berubah status atau maklumatnya
-              return prevItems.map((item) =>
-                item.id === payload.new.id ? payload.new : item
-              );
-            } else if (payload.eventType === 'INSERT') {
-              // Masukkan item baru ke dalam senarai jika profil sepadan
-              if (payload.new.profile && payload.new.profile.toLowerCase() === activeProfile.toLowerCase()) {
-                return [payload.new, ...prevItems];
-              }
-            } else if (payload.eventType === 'DELETE') {
-              // Buang item yang dipadam
-              return prevItems.filter((item) => item.id !== payload.old.id);
-            }
-            return prevItems;
-          });
-        }
-      )
-      .subscribe();
-
-    // Bersihkan langganan apabila komponen ditutup atau profil bertukar
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [supabase, activeProfile]);
 
+
+
   const handleDeleteQueue = async (id) => {
+
     if (!confirm('Adakah anda pasti mahu memadam pos/queue ini?')) return;
 
+
+
     try {
+
       const res = await fetch(`/api/schedule?id=${id}`, {
+
         method: 'DELETE',
+
       });
+
       const data = await res.json();
+
+
 
       if (!res.ok) throw new Error(data.error || 'Gagal memadam pos.');
 
+
+
       alert('Berjaya dipadam!');
+
       setScheduledPosts((prev) => prev.filter((p) => p.id !== id));
+
     } catch (err) {
+
       alert(`Ralat: ${err.message}`);
+
     }
+
   };
 
+
+
   // Tapis pos berdasarkan Page yang dipilih dalam dropdown
+
   const filteredPosts = scheduledPosts.filter((p) => {
+
     if (selectedPageId === 'all') return true;
+
     if (!p.page_ids) return false;
+
     return p.page_ids.includes(selectedPageId);
+
   });
 
+
+
   return (
+
     <main style={{ maxWidth: '900px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
+
       
+
       {/* Header & Navigasi */}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
+
         <div>
+
           <Link 
+
             href="/scheduler" 
+
             style={{ 
+
               display: 'inline-block', 
+
               padding: '8px 14px', 
+
               backgroundColor: '#242526', 
+
               color: '#fff', 
+
               borderRadius: '8px', 
+
               textDecoration: 'none', 
+
               fontSize: '13px', 
+
               fontWeight: 'bold',
+
               border: '1px solid #3a3b3c',
+
               boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+
             }}
+
           >
+
             ⬅️ Kembali ke Scheduler
+
           </Link>
+
           <h1 style={{ color: '#1877f2', margin: '12px 0 4px 0' }}>Senarai Pos Dijadualkan / Queue</h1>
+
           <p style={{ color: '#65676b', fontSize: '14px', margin: 0 }}>Uruskan jadual pos mengikut profil dan Facebook Page.</p>
+
         </div>
+
+
 
         {/* Pemilih Profil (Profile Selector) */}
+
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#242526', padding: '8px 12px', borderRadius: '8px', border: '1px solid #3a3b3c' }}>
+
           <span style={{ color: '#aaa', fontSize: '12px', fontWeight: 'bold' }}>Profil:</span>
+
           <select
+
             value={activeProfile}
+
             onChange={(e) => setActiveProfile(e.target.value)}
+
             style={{
+
               padding: '6px 10px',
+
               borderRadius: '6px',
+
               border: '1px solid #4e4f50',
+
               backgroundColor: '#18191a',
+
               color: '#fff',
+
               fontSize: '13px',
+
               fontWeight: 'bold',
+
               cursor: 'pointer',
+
               outline: 'none'
+
             }}
+
           >
+
             {profiles.map((prof) => (
+
               <option key={prof} value={prof}>
+
                 👤 {prof}
+
               </option>
+
             ))}
+
           </select>
+
         </div>
+
       </div>
+
+
 
       {/* Bahagian Dropdown Filter Page */}
+
       <div style={{ background: '#242526', padding: '15px 20px', borderRadius: '12px', marginBottom: '25px', display: 'flex', alignItems: 'center', gap: '15px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+
         <span style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px' }}>Tapis Page:</span>
+
         <select
+
           value={selectedPageId}
+
           onChange={(e) => setSelectedPageId(e.target.value)}
+
           style={{
+
             flex: 1,
+
             maxWidth: '350px',
+
             padding: '10px 14px',
+
             borderRadius: '8px',
+
             border: '1px solid #3a3b3c',
+
             backgroundColor: '#18191a',
+
             color: '#fff',
+
             fontSize: '14px',
+
             cursor: 'pointer',
+
             outline: 'none'
+
           }}
+
         >
+
           <option value="all">🌐 Semua Facebook Pages</option>
+
           {pages.map((page) => (
+
             <option key={page.page_id} value={page.page_id}>
+
               f {page.page_name}
+
             </option>
+
           ))}
+
         </select>
+
       </div>
 
+
+
       {/* Jadual Pos */}
+
       <section>
+
         <div style={{ overflowX: 'auto' }}>
+
           <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', borderRadius: '8px', overflow: 'hidden' }}>
+
             <thead>
+
               <tr style={{ background: '#eee', textAlign: 'left' }}>
+
                 <th style={{ padding: '12px' }}>Mesej</th>
+
                 <th style={{ padding: '12px' }}>Masa</th>
+
                 <th style={{ padding: '12px' }}>Status</th>
+
                 <th style={{ padding: '12px', textAlign: 'center' }}>Tindakan</th>
+
               </tr>
+
             </thead>
+
             <tbody>
+
               {loading ? (
+
                 <tr><td colSpan="4" style={{ padding: '20px', textAlign: 'center', color: '#777' }}>Memuatkan senarai pos...</td></tr>
+
               ) : filteredPosts.length === 0 ? (
+
                 <tr><td colSpan="4" style={{ padding: '20px', textAlign: 'center', color: '#777' }}>Tiada rekod pos untuk profil & pilihan ini.</td></tr>
+
               ) : (
+
                 filteredPosts.map(p => (
+
                   <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
+
                     <td style={{ padding: '12px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.message || '(Tiada teks)'}</td>
+
                     <td style={{ padding: '12px' }}>{p.scheduled_at ? new Date(p.scheduled_at).toLocaleString() : '-'}</td>
+
                     <td style={{ padding: '12px' }}>
+
                       <span style={{ 
+
                         padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold',
+
                         backgroundColor: p.status === 'published' ? '#d4edda' : '#fff3cd',
+
                         color: p.status === 'published' ? '#155724' : '#856404'
+
                       }}>
+
                         {p.status ? p.status.toUpperCase() : 'PENDING'}
+
                       </span>
+
                     </td>
+
                     <td style={{ padding: '12px', textAlign: 'center' }}>
+
                       {p.status === 'pending' && (
+
                         <button
+
                           onClick={() => handleDeleteQueue(p.id)}
+
                           style={{
+
                             background: '#dc3545',
+
                             color: '#fff',
+
                             border: 'none',
+
                             padding: '6px 12px',
+
                             borderRadius: '4px',
+
                             cursor: 'pointer',
+
                             fontSize: '12px',
+
                             fontWeight: 'bold'
+
                           }}
+
                         >
+
                           Padam
+
                         </button>
+
                       )}
+
                     </td>
+
                   </tr>
+
                 ))
+
               )}
+
             </tbody>
+
           </table>
+
         </div>
+
       </section>
+
     </main>
+
   );
-}
+
+} 
+
