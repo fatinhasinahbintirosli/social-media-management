@@ -8,7 +8,15 @@ export default function QueuePage() {
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [pages, setPages] = useState([]);
   const [profiles, setProfiles] = useState(['Default']);
-  const [activeProfile, setActiveProfile] = useState('Default');
+  
+  // Baca terus dari localStorage semasa inisialisasi state agar sentiasa kekal profil terkini selepas refresh
+  const [activeProfile, setActiveProfile] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('fb_scheduler_profile') || 'Default';
+    }
+    return 'Default';
+  });
+  
   const [selectedPageId, setSelectedPageId] = useState('all');
   const [loading, setLoading] = useState(true);
 
@@ -19,7 +27,7 @@ export default function QueuePage() {
     );
   }, []);
 
-  // 1. Muat turun senarai profil unik milik user dari database / localStorage
+  // 1. Muat turun senarai profil unik milik user dari database
   useEffect(() => {
     async function loadInitialData() {
       try {
@@ -36,12 +44,14 @@ export default function QueuePage() {
         if (profData && profData.length > 0) {
           const uniqueNames = [...new Set(profData.map(p => p.profile_name))];
           setProfiles(uniqueNames);
-        }
-
-        // Ambil profil aktif dari localStorage jika ada
-        const savedProfile = localStorage.getItem('fb_scheduler_profile');
-        if (savedProfile) {
-          setActiveProfile(savedProfile);
+          
+          // Pastikan activeProfile sah wujud dalam senarai profil semasa
+          const savedProfile = localStorage.getItem('fb_scheduler_profile');
+          if (savedProfile && uniqueNames.includes(savedProfile)) {
+            setActiveProfile(savedProfile);
+          } else if (uniqueNames.length > 0 && !uniqueNames.includes(activeProfile)) {
+            setActiveProfile(uniqueNames[0]);
+          }
         }
       } catch (err) {
         console.error('Ralat memuatkan profil:', err);
