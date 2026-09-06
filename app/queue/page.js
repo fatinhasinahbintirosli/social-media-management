@@ -72,13 +72,13 @@ export default function QueuePage() {
           .eq('user_id', currentUserId)
           .order('page_name', { ascending: true });
 
-        // Ambil scheduled_posts mengikut profil aktif (menggunakan .ilike untuk toleransi huruf besar/kecil) DAN user_id yang sah
+        // Ambil scheduled_posts mengikut profil aktif DAN user_id yang sah berserta susunan masa cipta
         const { data: sData } = await supabase
           .from('scheduled_posts')
           .select('*')
           .ilike('profile', activeProfile)
           .eq('user_id', currentUserId)
-        
+          .order('created_at', { ascending: false });
         
         setPages(pData || []);
         setScheduledPosts(sData || []);
