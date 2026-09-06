@@ -72,11 +72,11 @@ export default function QueuePage() {
           .eq('user_id', currentUserId)
           .order('page_name', { ascending: true });
 
-        // Ambil scheduled_posts mengikut profil aktif DAN user_id yang sah
+        // Ambil scheduled_posts mengikut profil aktif (menggunakan .ilike untuk mengelakkan isu huruf besar/kecil) DAN user_id yang sah
         const { data: sData } = await supabase
           .from('scheduled_posts')
           .select('*')
-          .eq('profile', activeProfile)
+          .ilike('profile', activeProfile)
           .eq('user_id', currentUserId)
           .order('created_at', { ascending: false });
         
@@ -108,8 +108,8 @@ export default function QueuePage() {
                 item.id === payload.new.id ? payload.new : item
               );
             } else if (payload.eventType === 'INSERT') {
-              // Masukkan item baru ke dalam senarai jika sepadan dengan profil aktif
-              if (payload.new.profile === activeProfile) {
+              // Masukkan item baru ke dalam senarai jika profil sepadan
+              if (payload.new.profile && payload.new.profile.toLowerCase() === activeProfile.toLowerCase()) {
                 return [payload.new, ...prevItems];
               }
             } else if (payload.eventType === 'DELETE') {
