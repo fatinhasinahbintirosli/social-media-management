@@ -15,7 +15,7 @@ export default function SchedulerPage() {
 
   const [pages, setPages] = useState([]);
   const [selectedPages, setSelectedPages] = useState([]);
-  const [profiles, setProfiles] = useState([]); // State untuk simpan senarai profil dinamik
+  const [profiles, setProfiles] = useState([]);
   const [message, setMessage] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [commentImageUrl, setCommentImageUrl] = useState('');
@@ -26,6 +26,7 @@ export default function SchedulerPage() {
   const [loading, setLoading] = useState(false);
   const [fileUploading, setFileUploading] = useState(false);
   const [fetchingPages, setFetchingPages] = useState(true);
+  const [isDragging, setIsDragging] = useState(false);
 
   const supabase = useMemo(() => {
     return createClient(
@@ -37,7 +38,6 @@ export default function SchedulerPage() {
   async function initData(userId) {
     setFetchingPages(true);
     
-    // 1. Ambil Pages
     const { data: pData, error } = await supabase
       .from('pages')
       .select('page_id, page_name')
@@ -49,7 +49,6 @@ export default function SchedulerPage() {
     }
     setPages(pData || []);
 
-    // 2. Ambil Profiles secara dinamik dari database
     const { data: profData, error: profError } = await supabase
       .from('profiles')
       .select('*')
@@ -62,7 +61,6 @@ export default function SchedulerPage() {
       if (profData && profData.length > 0) {
         setProfiles(profData);
         
-        // Tetapkan profil default atau kekalkan pilihan dari localStorage jika sah
         const savedProfile = localStorage.getItem('fb_scheduler_profile');
         const profileExists = profData.some(p => p.profile_name === savedProfile);
         
@@ -73,7 +71,6 @@ export default function SchedulerPage() {
           setCurrentProfile(savedProfile);
         }
       } else {
-        // Jika tiada profil langsung, cipta profil "Default" secara automatik
         const { data: newDef } = await supabase
           .from('profiles')
           .insert([{ user_id: userId, profile_name: 'Default' }])
@@ -224,8 +221,7 @@ export default function SchedulerPage() {
     window.location.href = fbLoginUrl;
   };
 
-  const handleFileUpload = async (e, setUrlState) => {
-    const file = e.target.files[0];
+  const processAndUploadFile = async (file, setUrlState) => {
     if (!file) return;
 
     setFileUploading(true);
@@ -245,6 +241,30 @@ export default function SchedulerPage() {
     setFileUploading(false);
   };
 
+  const handleFileUpload = async (e, setUrlState) => {
+    const file = e.target.files[0];
+    await processAndUploadFile(file, setUrlState);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e, setUrlState) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      await processAndUploadFile(file, setUrlState);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (selectedPages.length === 0) return alert('Sila pilih sekurang-kurangnya satu Facebook Page.');
@@ -262,7 +282,6 @@ export default function SchedulerPage() {
       }
     }
 
-    // Ambil sesi terkini untuk mendapatkan userId yang aktif
     const { data: { session } } = await supabase.auth.getSession();
     const currentUserId = session ? session.user.id : null;
 
@@ -275,7 +294,7 @@ export default function SchedulerPage() {
       commentImageUrl: commentImageUrl || null,
       scheduledAt: postMode === 'auto' ? 'auto-queue' : (scheduledAt || null),
       profile: currentProfile,
-      userId: currentUserId, // <-- Disertakan mengikut keperluan penting
+      userId: currentUserId,
     };
 
     try {
@@ -387,7 +406,6 @@ export default function SchedulerPage() {
             );
           })}
           
-          {/* Butang ke halaman Edit/Add Profile */}
           <Link href="/profiles" style={{ padding: '6px 12px', background: '#6f42c1', color: '#fff', borderRadius: '5px', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}>
             ⚙️ Edit/Add Profile
           </Link>
@@ -455,15 +473,43 @@ export default function SchedulerPage() {
             <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Tulis kapsyen pos anda..." style={{ width: '100%', height: '90px', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
           </div>
 
+          {/* Kotak Muat Naik dengan Sokongan Drag and Drop */}
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Upload Gambar / Video Utama (Pilihan):</label>
-            <input 
-              type="file" 
-              accept="image/*,video/*"
-              onChange={(e) => handleFileUpload(e, setImageUrl)} 
-              disabled={fileUploading}
-              style={{ marginBottom: '5px', display: 'block', fontSize: '13px' }} 
-            />
+            
+            <div 
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, setImageUrl)}
+              style={{
+                border: `2px dashed ${isDragging ? '#0d6efd' : '#ccc'}`,
+                borderRadius: '8px',
+                padding: '20px',
+                textAlign: 'center',
+                background: isDragging ? '#e7f3ff' : '#fff',
+                cursor: 'pointer',
+                marginBottom: '8px',
+                transition: 'all 0.2s ease-in-out'
+              }}
+              onClick={() => document.getElementById('mainFile однакоInput').click()}
+            >
+              <div style={{ fontSize: '24px', marginBottom: '5px' }}>📁</div>
+              <p style={{ margin: '0 0 5px 0', fontSize: '13px', fontWeight: 'bold', color: '#333' }}>
+                Seret & Lepas (Drag & Drop) fail gambar atau video di sini
+              </p>
+              <p style={{ margin: 0, fontSize: '12px', color: '#666' }}>
+                Atau klik untuk pilih fail dari komputer
+              </p>
+              <input 
+                id="mainFile Input"
+                type="file" 
+                accept="image/*,video/*"
+                onChange={(e) => handleFileUpload(e, setImageUrl)} 
+                disabled={fileUploading}
+                style={{ display: 'none' }} 
+              />
+            </div>
+
             <input 
               type="text" 
               value={imageUrl} 
