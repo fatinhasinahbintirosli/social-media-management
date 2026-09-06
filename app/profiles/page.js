@@ -10,6 +10,7 @@ export default function ManageProfilesPage() {
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editingName, setEditingName] = useState('');
+  const [oldProfileName, setOldProfileName] = useState(''); // Tambah state untuk simpan nama lama
 
   const supabase = useMemo(() => {
     return createClient(
@@ -35,7 +36,6 @@ export default function ManageProfilesPage() {
     if (error) {
       console.error('Ralat memuatkan profil:', error.message);
     } else {
-      // Jika tiada profil lagi, auto-cipta profil "Default"
       if (!data || data.length === 0) {
         const { data: newDef } = await supabase
           .from('profiles')
@@ -70,20 +70,38 @@ export default function ManageProfilesPage() {
   };
 
   const handleRename = async (id) => {
-    if (!editingName.trim()) return;
+    const trimmedNewName = editingName.trim();
+    if (!trimmedNewName) return;
 
-    const { error } = await supabase
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    // 1. Kemaskini nama profil dalam jadual profiles
+    const { error: profileError } = await supabase
       .from('profiles')
-      .update({ profile_name: editingName.trim() })
+      .update({ profile_name: trimmedNewName })
       .eq('id', id);
 
-    if (error) {
-      alert('Gagal mengemas kini nama: ' + error.message);
-    } else {
-      setEditingId(null);
-      setEditingName('');
-      fetchProfiles();
+    if (profileError) {
+      alert('Gagal mengemas kini nama: ' + profileError.message);
+      return;
     }
+
+    // 2. Kemaskini juga lajur profile pada jadual scheduled_posts agar pos lama tidak hilang
+    const { error: postsError } = await supabase
+      .from('scheduled_posts')
+      .update({ profile: trimmedNewName })
+      .eq('user_id', session.user.id)
+      .ilike('profile', oldProfileName);
+
+    if (postsError) {
+      console.error('Amaran: Gagal mengemaskini pos berjadual berkaitan:', postsError.message);
+    }
+
+    setEditingId(null);
+    setEditingName('');
+    setOldProfileName('');
+    fetchProfiles();
   };
 
   const handleDelete = async (id, name) => {
@@ -144,7 +162,7 @@ export default function ManageProfilesPage() {
                   style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }}
                 />
                 <button onClick={() => handleRename(p.id)} style={{ padding: '6px 12px', background: '#0d6efd', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Simpan</button>
-                <button onClick={() => setEditingId(null)} style={{ padding: '6px 12px', background: '#6c757d', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Batal</button>
+                <button onClick={() => { setEditingId(null); setOldProfileName(''); }} style={{ padding: '6px 12px', background: '#6c757d', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Batal</button>
               </div>
             ) : (
               <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#333' }}>
@@ -154,7 +172,7 @@ export default function ManageProfilesPage() {
 
             {editingId !== p.id && (
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button onClick={() => { setEditingId(p.id); setEditingName(p.profile_name); }} style={{ padding: '6px 12px', background: '#ffc107', color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>Rename</button>
+                <button onClick={() => { setEditingId(p.id); setEditingName(p.profile_name); setOldProfileName(p.profile_name); }} style={{ padding: '6px 12px', background: '#ffc107', color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>Rename</button>
                 <button onClick={() => handleDelete(p.id, p.profile_name)} style={{ padding: '6px 12px', background: '#dc3545', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>Padam</button>
               </div>
             )}
