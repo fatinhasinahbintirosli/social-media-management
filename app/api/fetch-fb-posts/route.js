@@ -15,10 +15,10 @@ export async function GET(request) {
       return NextResponse.json({ error: 'User ID diperlukan' }, { status: 400 });
     }
 
-    // Ambil senarai Page dan token akses milik user dari Supabase
+    // Ambil data page menggunakan struktur lajur yang standard
     const { data: pages, error: pageError } = await supabase
       .from('pages')
-      .select('page_id, page_name, access_token')
+      .select('*')
       .eq('user_id', userId);
 
     if (pageError) throw pageError;
@@ -28,13 +28,17 @@ export async function GET(request) {
 
     let allFetchedPosts = [];
 
-    // Gelung setiap Page untuk tarik pos terus dari Graph API Facebook
     for (const page of pages) {
-      if (!page.access_token) continue;
+      // Sesuaikan nama lajur mengikut database anda (cth: page_id atau id, page_name atau name)
+      const pageId = page.page_id || page.id;
+      const pageName = page.page_name || page.name || 'Facebook Page';
+      const accessToken = page.access_token || page.token;
+
+      if (!accessToken || !pageId) continue;
 
       try {
         const fbRes = await fetch(
-          `https://graph.facebook.com/v19.0/${page.page_id}/posts?fields=id,message,created_time,full_picture,permalink_url&access_token=${page.access_token}`
+          `https://graph.facebook.com/v19.0/${pageId}/posts?fields=id,message,created_time,full_picture,permalink_url&access_token=${accessToken}`
         );
         const fbData = await fbRes.json();
 
@@ -42,19 +46,19 @@ export async function GET(request) {
           fbData.data.forEach((p) => {
             allFetchedPosts.push({
               id: p.id,
-              page_id: page.page_id,
-              page_name: page.page_name,
+              page_id: pageId,
+              page_name: pageName,
               message: p.message || '',
-              scheduled_at: p.created_time, // Guna waktu pos dicipta
+              scheduled_at: p.created_time,
               image_url: p.full_picture || null,
               status: 'published',
-              is_external: true, // Penanda bahawa ia pos luar/manual
+              is_external: true,
               permalink_url: p.permalink_url || `https://facebook.com/${p.id}`,
             });
           });
         }
       } catch (err) {
-        console.error(`Gagal tarik pos untuk page ${page.page_name}:`, err);
+        console.error(`Gagal tarik pos untuk page ${pageName}:`, err);
       }
     }
 
