@@ -12,7 +12,6 @@ export default function CalendarPostsPage() {
   const [loading, setLoading] = useState(true);
   const [activeProfile, setActiveProfile] = useState('Default');
   
-  // Tetapkan rentang tarikh (Default: 7 hari lepas hingga hari ini)
   const todayStr = new Date().toISOString().split('T')[0];
   const pastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   
@@ -104,23 +103,20 @@ export default function CalendarPostsPage() {
     return map;
   }, [pages]);
 
-  // Tapis pos mengikut Page, Rentang Tarikh (Start & End Date), dan Carian Kapsyen
+  // Tapis pos mengikut Page, Rentang Tarikh, dan Carian Kapsyen
   const filteredPosts = useMemo(() => {
     return localPosts.filter(p => {
-      // Tapis Page
       const pIds = Array.isArray(p.page_ids) ? p.page_ids : [p.page_id];
       if (selectedPageId !== 'all' && !pIds.includes(selectedPageId)) {
         return false;
       }
       
-      // Tapis Rentang Tarikh (Between Start Date & End Date)
       if (p.scheduled_at) {
         const postDate = new Date(p.scheduled_at).toISOString().split('T')[0];
         if (startDate && postDate < startDate) return false;
         if (endDate && postDate > endDate) return false;
       }
 
-      // Tapis Carian Kapsyen (Search Query)
       if (searchQuery.trim() !== '') {
         const msg = (p.message || '').toLowerCase();
         if (!msg.includes(searchQuery.toLowerCase())) {
@@ -131,7 +127,7 @@ export default function CalendarPostsPage() {
     });
   }, [localPosts, selectedPageId, startDate, endDate, searchQuery]);
 
-  // Group pos dengan toleransi masa dalam 4 minit & mesej yang seiras
+  // Group pos berdasarkan Mesej Kapsyen & Tarikh Hari yang sama (toleransi masa dibesarkan kepada 30 minit)
   const groupedPosts = useMemo(() => {
     const groups = [];
 
@@ -141,12 +137,15 @@ export default function CalendarPostsPage() {
         if (!pid) return;
         const pName = pageNameMap[pid] || p.page_name || `Page ID: ${pid}`;
         const pTime = p.scheduled_at ? new Date(p.scheduled_at).getTime() : 0;
+        const pDateStr = p.scheduled_at ? new Date(p.scheduled_at).toISOString().split('T')[0] : '';
         const pMsg = (p.message || '').trim();
-        const pImg = p.image_url || '';
 
+        // Cari kumpulan sedia ada yang mempunyai kapsyen sama pada hari yang sama (toleransi masa 30 minit)
         let foundGroup = groups.find(g => {
           const timeDiff = Math.abs(g.baseTime - pTime);
-          return g.message === pMsg && g.imageUrl === pImg && timeDiff <= 4 * 60 * 1000;
+          const sameDay = g.dateStr === pDateStr;
+          // Gabung jika kapsyen seiras dan berlaku pada hari yang sama dalam julat 30 minit
+          return g.message === pMsg && sameDay && timeDiff <= 30 * 60 * 1000;
         });
 
         if (foundGroup) {
@@ -161,8 +160,9 @@ export default function CalendarPostsPage() {
           groups.push({
             id: p.id,
             message: pMsg,
-            imageUrl: pImg,
+            imageUrl: p.image_url || '',
             baseTime: pTime,
+            dateStr: pDateStr,
             scheduled_at: p.scheduled_at,
             status: p.status,
             ids: [p.id],
@@ -235,7 +235,6 @@ export default function CalendarPostsPage() {
       {/* Bar Kawalan: Carian Kapsyen & Tapis Page */}
       <div style={{ background: '#242526', padding: '15px 20px', borderRadius: '12px', marginBottom: '25px', display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
         
-        {/* Kotak Carian Kapsyen */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '250px' }}>
           <span style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px' }}>Cari Kapsyen:</span>
           <input 
@@ -250,7 +249,6 @@ export default function CalendarPostsPage() {
           />
         </div>
 
-        {/* Dropdown Tapis Page */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '250px' }}>
           <span style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px' }}>Tapis Page:</span>
           <select
@@ -303,7 +301,7 @@ export default function CalendarPostsPage() {
                 )}
                 <div style={{ flex: 1 }}>
                   
-                  {/* Senarai Page Terlibat */}
+                  {/* Senarai Semua Page Terlibat */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
                     {item.pages.map((pageName, idx) => (
                       <span key={idx} style={{ background: '#e7f3ff', color: '#1877f2', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #b6d4fe' }}>
@@ -325,7 +323,7 @@ export default function CalendarPostsPage() {
                       padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold',
                       backgroundColor: '#d4edda', color: '#155724'
                     }}>
-                      PUBLISHED
+                      PUBLISHED ({item.pages.length} Page)
                     </span>
                   </div>
                 </div>
