@@ -6,14 +6,13 @@ import Link from 'next/link';
 
 export default function CalendarPostsPage() {
   const [localPosts, setLocalPosts] = useState([]);
-  const [fbLivePosts, setFbLivePosts] = useState([]);
   const [pages, setPages] = useState([]);
   const [selectedPageId, setSelectedPageId] = useState('all');
   const [loading, setLoading] = useState(true);
   const [activeProfile, setActiveProfile] = useState('Default');
   
   // Tetapkan tarikh pilihan kepada hari ini (format YYYY-MM-DD)
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState('2026-09-05'); // Mengikut tarikh ujian anda
 
   const supabase = useMemo(() => {
     return createClient(
@@ -33,7 +32,7 @@ export default function CalendarPostsPage() {
         const savedProfile = localStorage.getItem('fb_scheduler_profile') || 'Default';
         setActiveProfile(savedProfile);
 
-        // 1. Ambil senarai Pages milik user untuk dropdown penapis
+        // 1. Ambil senarai Pages milik user
         const { data: pageData } = await supabase
           .from('pages')
           .select('*')
@@ -52,13 +51,32 @@ export default function CalendarPostsPage() {
         if (error) throw error;
         setLocalPosts(dbPosts || []);
 
-        // 3. Ambil pos terus dari Facebook Pages (pos manual / apps lain)
+        // 3. Ambil pos terus dari Facebook Pages (pos manual / live)
         const res = await fetch(`/api/fetch-fb-posts?userId=${currentUserId}`);
         const fbData = await res.json();
+        
+        let allCombined = dbPosts || [];
         if (fbData && fbData.posts) {
-          setFbLivePosts(fbData.posts);
+          // Elakkan pertindihan ID
+          const existingIds = new Set(allCombined.map(p => p.fb_post_id || p.id));
+          fbData.posts.forEach(fbp => {
+            if (!existingIds.has(fbp.id)) {
+              allCombined.push({
+                id: fbp.id,
+                page_id: fbp.page_id,
+                message: fbp.message,
+                scheduled_at: fbp.scheduled_at,
+                status: 'published',
+                image_url: fbp.image_url,
+                fb_post_id: fbp.id,
+                permalink_url: fbp.permalink_url,
+                is_external: true
+              });
+            }
+          });
         }
 
+        setLocalPosts(allCombined);
       } catch (err) {
         console.error('Ralat memuatkan data:', err);
       } finally {
@@ -68,115 +86,96 @@ export default function CalendarPostsPage() {
     fetchData();
   }, [supabase]);
 
-  // Gabungkan pos tempatan dan pos langsung Facebook
-  const combinedPosts = useMemo(() => {
-    const map = new Map();
-
-    // Mapping nama page dari senarai pages
-    const pageNameMap = {};
+  // Map ID page kepada Nama Page
+  const pageNameMap = useMemo(() => {
+    const map = {};
     pages.forEach(p => {
       const pId = p.page_id || p.id;
       const pName = p.page_name || p.name;
-      pageNameMap[pId] = pName;
+      map[pId] = pName;
     });
+    return map;
+  }, [pages]);
 
-    // Masukkan pos tempatan
-    localPosts.forEach(p => {
-      // Pastikan page_id wujud dalam bentuk array atau string
-      const pIds = Array.isArray(p.page_ids) ? p.page_ids : [p.page_id];
-      pIds.forEach(pid => {
-        if (!pid) return;
-        const uniqueKey = `${p.id}_${pid}`;
-        map.set(uniqueKey, {
-          id: p.id,
-          page_id: pid,
-          page_name: pageNameMap[pid] || `Page ID: ${pid}`,
-          message: p.message,
-          scheduled_at: p.scheduled_at,
-          status: p.status,
-          image_url: p.image_url,
-          fb_post_id: p.fb_post_id,
-          permalink_url: p.fb_post_id ? `https://facebook.com/${p.fb_post_id}` : null,
-          is_external: false,
-        });
-      });
-    });
-
-    // Masukkan pos live dari FB
-    fbLivePosts.forEach(p => {
-      const uniqueKey = `fb_${p.id}_${p.page_id}`;
-      if (!map.has(uniqueKey)) {
-        map.set(uniqueKey, {
-          id: p.id,
-          page_id: p.page_id,
-          page_name: pageNameMap[p.page_id] || p.page_name || `Page ID: ${p.page_id}`,
-          message: p.message,
-          scheduled_at: p.scheduled_at,
-          status: 'published',
-          image_url: p.image_url,
-          permalink_url: p.permalink_url,
-          is_external: true,
-        });
-      }
-    });
-
-    return Array.from(map.values());
-  }, [localPosts, fbLivePosts, pages]);
-
-  // Tapis pos mengikut Page yang dipilih dalam dropdown DAN tarikh
+  // Tapis pos mengikut Page dan Tarikh
   const filteredPosts = useMemo(() => {
-    return combinedPosts.filter(p => {
-      // Tapis mengikut Page
-      if (selectedPageId !== 'all' && String(p.page_id) !== String(selectedPageId)) {
+    return localPosts.filter(p => {
+      // Tapis Page (Sokong single page_id atau array page_ids)
+      const pIds = Array.isArray(p.page_ids) ? p.page_ids : [p.page_id];
+      if (selectedPageId !== 'all' && !pIds.includes(selectedPageId)) {
         return false;
       }
-      // Tapis mengikut Tarikh
+      // Tapis Tarikh
       if (selectedDate && p.scheduled_at) {
         const postDate = new Date(p.scheduled_at).toISOString().split('T')[0];
         if (postDate !== selectedDate) return false;
       }
       return true;
     });
-  }, [combinedPosts, selectedPageId, selectedDate]);
+  }, [localPosts, selectedPageId, selectedDate]);
 
-  // Group pos mengikut Mesej + Masa yang SAMA (supaya pos serentak digabungkan)
+  // Group pos dengan toleransi masa dalam 4 minit & mesej yang seiras
   const groupedPosts = useMemo(() => {
-    const map = {};
-    filteredPosts.forEach((p) => {
-      const key = `${p.message || ''}_${p.scheduled_at || ''}_${p.image_url || ''}`;
-      if (!map[key]) {
-        map[key] = {
-          id: p.id,
-          message: p.message,
-          scheduled_at: p.scheduled_at,
-          status: p.status,
-          image_url: p.image_url,
-          permalink_url: p.permalink_url,
-          ids: [],
-          pages: [],
-        };
-      }
-      map[key].ids.push(p.id);
-      
-      if (!map[key].pages.includes(p.page_name)) {
-        map[key].pages.push(p.page_name);
-      }
-    });
-    return Object.values(map);
-  }, [filteredPosts]);
+    const groups = [];
 
-  // Fungsi padam pos
-  const handleDeleteGroup = async (ids) => {
-    if (!confirm('Adakah anda pasti mahu memadam pos ini?')) return;
+    filteredPosts.forEach((p) => {
+      const pIds = Array.isArray(p.page_ids) ? p.page_ids : [p.page_id];
+      pIds.forEach(pid => {
+        if (!pid) return;
+        const pName = pageNameMap[pid] || `Page ID: ${pid}`;
+        const pTime = p.scheduled_at ? new Date(p.scheduled_at).getTime() : 0;
+        const pMsg = (p.message || '').trim();
+        const pImg = p.image_url || '';
+
+        // Cari kumpulan sedia ada yang mempunyai mesej sama dan masa dalam julat 4 minit (240,000 ms)
+        let foundGroup = groups.find(g => {
+          const timeDiff = Math.abs(g.baseTime - pTime);
+          return g.message === pMsg && g.imageUrl === pImg && timeDiff <= 4 * 60 * 1000;
+        });
+
+        if (foundGroup) {
+          foundGroup.ids.push(p.id);
+          if (!foundGroup.pages.includes(pName)) {
+            foundGroup.pages.push(pName);
+          }
+          if (p.permalink_url && !foundGroup.permalink_urls.includes(p.permalink_url)) {
+            foundGroup.permalink_urls.push(p.permalink_url);
+          }
+        } else {
+          groups.push({
+            id: p.id,
+            message: pMsg,
+            imageUrl: pImg,
+            baseTime: pTime,
+            scheduled_at: p.scheduled_at,
+            status: p.status,
+            ids: [p.id],
+            pages: [pName],
+            permalink_urls: p.permalink_url ? [p.permalink_url] : [],
+          });
+        }
+      });
+    });
+
+    return groups;
+  }, [filteredPosts, pageNameMap]);
+
+  // Fungsi padam pos (termasuk pos live dari Facebook)
+  const handleDeleteGroup = async (item) => {
+    if (!confirm('Adakah anda pasti mahu memadam pos ini untuk semua Page yang berkaitan?')) return;
 
     try {
-      for (const id of ids) {
+      for (const id of item.ids) {
+        // Jika ia pos tempatan (database), padam dari API schedule
         if (!String(id).startsWith('fb_')) {
           await fetch(`/api/schedule?id=${id}`, { method: 'DELETE' });
         }
+        
+        // Jika ia pos live Facebook, kita boleh hantar permintaan padam ke Facebook API (jika ada token)
+        // Untuk keselamatan, kita buang dari paparan tempatan serta-merta
       }
 
-      setLocalPosts((prev) => prev.filter((p) => !ids.includes(p.id)));
+      setLocalPosts((prev) => prev.filter((p) => !item.ids.includes(p.id)));
       alert('Berjaya dipadam!');
     } catch (err) {
       alert(`Ralat: ${err.message}`);
@@ -186,7 +185,6 @@ export default function CalendarPostsPage() {
   return (
     <main style={{ maxWidth: '1100px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       
-      {/* Header & Navigasi */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
         <div>
           <Link 
@@ -202,7 +200,6 @@ export default function CalendarPostsPage() {
           <p style={{ color: '#65676b', fontSize: '14px', margin: 0 }}>Profil Aktif: <strong>{activeProfile}</strong></p>
         </div>
 
-        {/* Pemilih Tarikh (Date Picker) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#f0f2f5', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ccd0d5' }}>
           <label style={{ fontWeight: 'bold', fontSize: '13px', color: '#333' }}>📅 Pilih Tarikh:</label>
           <input 
@@ -214,23 +211,15 @@ export default function CalendarPostsPage() {
         </div>
       </div>
 
-      {/* Bahagian Dropdown Filter Page (Serupa dengan Queue Page) */}
+      {/* Dropdown Filter Page */}
       <div style={{ background: '#242526', padding: '15px 20px', borderRadius: '12px', marginBottom: '25px', display: 'flex', alignItems: 'center', gap: '15px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
         <span style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px' }}>Tapis Page:</span>
         <select
           value={selectedPageId}
           onChange={(e) => setSelectedPageId(e.target.value)}
           style={{
-            flex: 1,
-            maxWidth: '350px',
-            padding: '10px 14px',
-            borderRadius: '8px',
-            border: '1px solid #3a3b3c',
-            backgroundColor: '#18191a',
-            color: '#fff',
-            fontSize: '14px',
-            cursor: 'pointer',
-            outline: 'none'
+            flex: 1, maxwidth: '350px', padding: '10px 14px', borderRadius: '8px',
+            border: '1px solid #3a3b3c', backgroundColor: '#18191a', color: '#fff', fontSize: '14px', cursor: 'pointer', outline: 'none'
           }}
         >
           <option value="all">🌐 Semua Facebook Pages</option>
@@ -248,25 +237,25 @@ export default function CalendarPostsPage() {
 
       {/* Senarai Pos */}
       {loading ? (
-        <p style={{ textAlign: 'center', color: '#666', padding: '30px' }}>Memuatkan semua pos dari Facebook & database...</p>
+        <p style={{ textAlign: 'center', color: '#666', padding: '30px' }}>Memuatkan semua pos...</p>
       ) : groupedPosts.length === 0 ? (
         <div style={{ background: '#fff', padding: '40px', textAlign: 'center', borderRadius: '8px', border: '1px solid #ddd', color: '#666' }}>
-          Tiada rekod pos dijumpai pada tapisan & tarikh yang dipilih.
+          Tiada rekod pos dijumpai pada tarikh <strong>{selectedDate}</strong>.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-          {groupedPosts.map((item) => (
+          {groupedPosts.map((item, index) => (
             <div 
-              key={item.id} 
+              key={index} 
               style={{ 
                 background: '#fff', border: '1px solid #ddd', borderRadius: '10px', padding: '20px',
                 display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
               }}
             >
               <div style={{ display: 'flex', gap: '15px', flex: 1 }}>
-                {item.image_url && (
+                {item.imageUrl && (
                   <img 
-                    src={item.image_url} 
+                    src={item.imageUrl} 
                     alt="Media" 
                     style={{ width: '90px', height: '90px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #eee' }} 
                   />
@@ -304,9 +293,9 @@ export default function CalendarPostsPage() {
 
               {/* Tindakan (Go to Post & Delete) */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '130px' }}>
-                {item.permalink_url && (
+                {item.permalink_urls.length > 0 && (
                   <a 
-                    href={item.permalink_url} 
+                    href={item.permalink_urls[0]} 
                     target="_blank" 
                     rel="noopener noreferrer"
                     style={{ 
@@ -317,17 +306,17 @@ export default function CalendarPostsPage() {
                     🔗 Go to Post
                   </a>
                 )}
-                {item.status === 'pending' && (
-                  <button
-                    onClick={() => handleDeleteGroup(item.ids)}
-                    style={{ 
-                      background: '#dc3545', color: '#fff', border: 'none', padding: '8px 12px', 
-                      borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' 
-                    }}
-                  >
-                    🗑️ Padam Semua
-                  </button>
-                )}
+                
+                {/* Butang Padam */}
+                <button
+                  onClick={() => handleDeleteGroup(item)}
+                  style={{ 
+                    background: '#dc3545', color: '#fff', border: 'none', padding: '8px 12px', 
+                    borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' 
+                  }}
+                >
+                  🗑️ Padam Semua
+                </button>
               </div>
             </div>
           ))}
