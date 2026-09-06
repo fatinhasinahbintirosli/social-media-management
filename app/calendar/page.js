@@ -8,11 +8,16 @@ export default function CalendarPostsPage() {
   const [localPosts, setLocalPosts] = useState([]);
   const [pages, setPages] = useState([]);
   const [selectedPageId, setSelectedPageId] = useState('all');
-  const [searchQuery, setSearchQuery] = useState(''); // State untuk carian kapsyen
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [activeProfile, setActiveProfile] = useState('Default');
   
-  const [selectedDate, setSelectedDate] = useState('2026-09-05');
+  // Tetapkan rentang tarikh (Default: 7 hari lepas hingga hari ini)
+  const todayStr = new Date().toISOString().split('T')[0];
+  const pastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  
+  const [startDate, setStartDate] = useState(pastWeek);
+  const [endDate, setEndDate] = useState(todayStr);
 
   const supabase = useMemo(() => {
     return createClient(
@@ -99,7 +104,7 @@ export default function CalendarPostsPage() {
     return map;
   }, [pages]);
 
-  // Tapis pos mengikut Page, Tarikh, dan K carian (Search Query)
+  // Tapis pos mengikut Page, Rentang Tarikh (Start & End Date), dan Carian Kapsyen
   const filteredPosts = useMemo(() => {
     return localPosts.filter(p => {
       // Tapis Page
@@ -107,11 +112,14 @@ export default function CalendarPostsPage() {
       if (selectedPageId !== 'all' && !pIds.includes(selectedPageId)) {
         return false;
       }
-      // Tapis Tarikh
-      if (selectedDate && p.scheduled_at) {
+      
+      // Tapis Rentang Tarikh (Between Start Date & End Date)
+      if (p.scheduled_at) {
         const postDate = new Date(p.scheduled_at).toISOString().split('T')[0];
-        if (postDate !== selectedDate) return false;
+        if (startDate && postDate < startDate) return false;
+        if (endDate && postDate > endDate) return false;
       }
+
       // Tapis Carian Kapsyen (Search Query)
       if (searchQuery.trim() !== '') {
         const msg = (p.message || '').toLowerCase();
@@ -121,7 +129,7 @@ export default function CalendarPostsPage() {
       }
       return true;
     });
-  }, [localPosts, selectedPageId, selectedDate, searchQuery]);
+  }, [localPosts, selectedPageId, startDate, endDate, searchQuery]);
 
   // Group pos dengan toleransi masa dalam 4 minit & mesej yang seiras
   const groupedPosts = useMemo(() => {
@@ -136,7 +144,6 @@ export default function CalendarPostsPage() {
         const pMsg = (p.message || '').trim();
         const pImg = p.image_url || '';
 
-        // Semak sama ada ada kumpulan sedia ada dalam julat 4 minit (240,000 ms) & kapsyen seiras
         let foundGroup = groups.find(g => {
           const timeDiff = Math.abs(g.baseTime - pTime);
           return g.message === pMsg && g.imageUrl === pImg && timeDiff <= 4 * 60 * 1000;
@@ -206,14 +213,21 @@ export default function CalendarPostsPage() {
           <p style={{ color: '#65676b', fontSize: '14px', margin: 0 }}>Profil Aktif: <strong>{activeProfile}</strong></p>
         </div>
 
-        {/* Pemilih Tarikh (Date Picker) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#f0f2f5', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ccd0d5' }}>
-          <label style={{ fontWeight: 'bold', fontSize: '13px', color: '#333' }}>📅 Pilih Tarikh:</label>
+        {/* Pemilih Rentang Tarikh (Date Range Picker) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f0f2f5', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ccd0d5', flexWrap: 'wrap' }}>
+          <label style={{ fontWeight: 'bold', fontSize: '13px', color: '#333' }}>📅 Dari:</label>
           <input 
             type="date" 
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '13px', background: '#fff', cursor: 'pointer' }}
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            style={{ padding: '5px 8px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '12px', background: '#fff' }}
+          />
+          <label style={{ fontWeight: 'bold', fontSize: '13px', color: '#333' }}>Hingga:</label>
+          <input 
+            type="date" 
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            style={{ padding: '5px 8px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '12px', background: '#fff' }}
           />
         </div>
       </div>
@@ -267,7 +281,7 @@ export default function CalendarPostsPage() {
         <p style={{ textAlign: 'center', color: '#666', padding: '30px' }}>Memuatkan semua pos...</p>
       ) : groupedPosts.length === 0 ? (
         <div style={{ background: '#fff', padding: '40px', textAlign: 'center', borderRadius: '8px', border: '1px solid #ddd', color: '#666' }}>
-          Tiada rekod pos dijumpai berdasarkan carian & tapisan yang dipilih.
+          Tiada rekod pos dijumpai dalam julat tarikh & tapisan yang dipilih.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -299,7 +313,7 @@ export default function CalendarPostsPage() {
                   </div>
 
                   <div style={{ fontSize: '12px', color: '#65676b', marginBottom: '4px', fontWeight: 'bold' }}>
-                    ⏰ Masa: {item.scheduled_at ? new Date(item.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}
+                    ⏰ Masa: {item.scheduled_at ? new Date(item.scheduled_at).toLocaleString() : '-'}
                   </div>
                   
                   <div style={{ fontSize: '14px', color: '#050505', marginBottom: '8px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
