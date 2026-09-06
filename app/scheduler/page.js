@@ -25,7 +25,6 @@ export default function SchedulerPage() {
   const [currentProfile, setCurrentProfile] = useState('');
   const [loading, setLoading] = useState(false);
   
-  // Status loading diasingkan supaya fail utama dan komen boleh upload serentak
   const [mainFileUploading, setMainFileUploading] = useState(false);
   const [commentFileUploading, setCommentFileUploading] = useState(false);
 
@@ -226,7 +225,6 @@ export default function SchedulerPage() {
     window.location.href = fbLoginUrl;
   };
 
-  // Fungsi umum untuk upload fail ke Supabase Storage
   const processAndUploadFile = async (file, setUrlState, setLoadingState) => {
     if (!file) return;
 
@@ -257,7 +255,6 @@ export default function SchedulerPage() {
     await processAndUploadFile(file, setCommentImageUrl, setCommentFileUploading);
   };
 
-  // Drag and Drop Handlers untuk Media Utama
   const handleMainDragOver = (e) => { e.preventDefault(); setIsDraggingMain(true); };
   const handleMainDragLeave = (e) => { e.preventDefault(); setIsDraggingMain(false); };
   const handleMainDrop = async (e) => {
@@ -267,7 +264,6 @@ export default function SchedulerPage() {
     if (file) await processAndUploadFile(file, setImageUrl, setMainFileUploading);
   };
 
-  // Drag and Drop Handlers untuk Komen
   const handleCommentDragOver = (e) => { e.preventDefault(); setIsDraggingComment(true); };
   const handleCommentDragLeave = (e) => { e.preventDefault(); setIsDraggingComment(false); };
   const handleCommentDrop = async (e) => {
@@ -602,7 +598,7 @@ export default function SchedulerPage() {
             disabled={loading || mainFileUploading || commentFileUploading} 
             style={{ width: '100%', padding: '12px', background: '#0d6efd', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '15px', cursor: 'pointer' }}
           >
-            {loading ? 'Memproses...' : (postMode === 'now' ? 'Hantar Sekarang' : `Masukkan ke Auto-Queue (${currentProfile})`)}
+            {loading ? 'Memproses...' : (postMode === 'now' ? 'Hantar Sekarang' : postMode === 'manual' ? 'Masukkan ke dalam jadual' : `Masukkan ke Auto-Queue (${currentProfile})`)}
           </button>
         </form>
 
