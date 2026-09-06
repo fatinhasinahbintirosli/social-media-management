@@ -26,15 +26,13 @@ export async function GET(request) {
       return NextResponse.json({ posts: [] });
     }
 
-    let allFetchedPosts = [];
-
-    // Gelung setiap Page untuk tarik pos langsung dari Facebook Graph API
-    for (const page of pages) {
+    // Gunakan Promise.all untuk tarik pos dari SEMUA Page secara serentak
+    const fetchPromises = pages.map(async (page) => {
       const pageId = page.page_id || page.id;
       const pageName = page.page_name || page.name || 'Facebook Page';
       const accessToken = page.access_token || page.token;
 
-      if (!accessToken || !pageId) continue;
+      if (!accessToken || !pageId) return [];
 
       try {
         const fbRes = await fetch(
@@ -43,24 +41,26 @@ export async function GET(request) {
         const fbData = await fbRes.json();
 
         if (fbData && fbData.data) {
-          fbData.data.forEach((p) => {
-            allFetchedPosts.push({
-              id: `fb_${p.id}`,
-              page_id: pageId,
-              page_name: pageName,
-              message: p.message || '',
-              scheduled_at: p.created_time,
-              image_url: p.full_picture || null,
-              status: 'published',
-              is_external: true,
-              permalink_url: p.permalink_url || `https://facebook.com/${p.id}`,
-            });
-          });
+          return fbData.data.map((p) => ({
+            id: `fb_${p.id}`,
+            page_id: pageId,
+            page_name: pageName,
+            message: p.message || '',
+            scheduled_at: p.created_time,
+            image_url: p.full_picture || null,
+            status: 'published',
+            is_external: true,
+            permalink_url: p.permalink_url || `https://facebook.com/${p.id}`,
+          }));
         }
       } catch (err) {
         console.error(`Gagal tarik pos untuk page ${pageName}:`, err);
       }
-    }
+      return [];
+    });
+
+    const results = await Promise.all(fetchPromises);
+    const allFetchedPosts = results.flat();
 
     return NextResponse.json({ posts: allFetchedPosts });
   } catch (err) {
