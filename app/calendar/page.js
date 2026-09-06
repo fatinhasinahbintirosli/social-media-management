@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import Link from 'next/link';
 
@@ -10,6 +10,7 @@ export default function CalendarPostsPage() {
   const [selectedPageId, setSelectedPageId] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false); // Penanda status latar belakang
   const [activeProfile, setActiveProfile] = useState('Default');
   
   const todayStr = new Date().toISOString().split('T')[0];
@@ -25,72 +26,100 @@ export default function CalendarPostsPage() {
     );
   }, []);
 
-  useEffect(() => {
-    async function fetchData() {
+  // Fungsi utama untuk memuat turun data pos & Facebook sync
+  const fetchData = useCallback(async (isBackground = false) => {
+    try {
+      if (!isBackground) setLoading(true);
+      else setIsRefreshing(true);
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const currentUserId = session.user.id;
+
+      const savedProfile = localStorage.getItem('fb_scheduler_profile') || 'Default';
+      setActiveProfile(savedProfile);
+
+      // 1. Ambil senarai Pages milik user
+      const { data: pageData } = await supabase
+        .from('pages')
+        .select('*')
+        .eq('user_id', currentUserId)
+        .order('page_name', { ascending: true });
+      
+      setPages(pageData || []);
+
+      // 2. Ambil pos dari database tempatan (scheduled_posts)
+      const { data: dbPosts, error } = await supabase
+        .from('scheduled_posts')
+        .select('*')
+        .eq('user_id', currentUserId)
+        .eq('profile', savedProfile);
+
+      if (error) throw error;
+
+      // 3. Ambil pos terus dari Facebook Pages (pos manual / live luar)
+      let combinedList = dbPosts || [];
       try {
-        setLoading(true);
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-        const currentUserId = session.user.id;
-
-        const savedProfile = localStorage.getItem('fb_scheduler_profile') || 'Default';
-        setActiveProfile(savedProfile);
-
-        // 1. Ambil senarai Pages milik user
-        const { data: pageData } = await supabase
-          .from('pages')
-          .select('*')
-          .eq('user_id', currentUserId)
-          .order('page_name', { ascending: true });
-        
-        setPages(pageData || []);
-
-        // 2. Ambil pos dari database tempatan (scheduled_posts)
-        const { data: dbPosts, error } = await supabase
-          .from('scheduled_posts')
-          .select('*')
-          .eq('user_id', currentUserId)
-          .eq('profile', savedProfile);
-
-        if (error) throw error;
-
-        // 3. Ambil pos terus dari Facebook Pages (pos manual / live luar)
-        let combinedList = dbPosts || [];
-        try {
-          const res = await fetch(`/api/fetch-fb-posts?userId=${currentUserId}`);
-          const fbData = await res.json();
-          if (fbData && fbData.posts) {
-            const existingIds = new Set(combinedList.map(p => p.fb_post_id || p.id));
-            fbData.posts.forEach(fbp => {
-              if (!existingIds.has(fbp.id) && !existingIds.has(fbp.id.replace('fb_', ''))) {
-                combinedList.push({
-                  id: fbp.id,
-                  page_id: fbp.page_id,
-                  page_ids: [fbp.page_id],
-                  message: fbp.message,
-                  scheduled_at: fbp.scheduled_at,
-                  status: 'published',
-                  image_url: fbp.image_url,
-                  fb_post_id: fbp.id,
-                  permalink_url: fbp.permalink_url,
-                  is_external: true
-                });
-              }
-            });
-          }
-        } catch (fbErr) {
-          console.error('Ralat menarik pos langsung dari Facebook:', fbErr);
+        const res = await fetch(`/api/fetch-fb-posts?userId=${currentUserId}`);
+        const fbData = await res.json();
+        if (fbData && fbData.posts) {
+          const existingIds = new Set(combinedList.map(p => p.fb_post_id || p.id));
+          fbData.posts.forEach(fbp => {
+            if (!existingIds.has(fbp.id) && !existingIds.has(fbp.id.replace('fb_', ''))) {
+              combinedList.push({
+                id: fbp.id,
+                page_id: fbp.page_id,
+                page_ids: [fbp.page_id],
+                message: fbp.message,
+                scheduled_at: fbp.scheduled_at,
+                status: 'published',
+                image_url: fbp.image_url,
+                fb_post_id: fbp.id,
+                permalink_url: fbp.permalink_url,
+                is_external: true
+              });
+            }
+          });
         }
-
-        setLocalPosts(combinedList);
-      } catch (err) {
-        console.error('Ralat memuatkan data:', err);
-      } finally {
-        setLoading(false);
+      } catch (fbErr) {
+        console.error('Ralat menarik pos langsung dari Facebook:', fbErr);
       }
+
+      setLocalPosts(combinedList);
+    } catch (err) {
+      console.error('Ralat memuatkan data:', err);
+    } finally {
+      setLoading(false);
+      setIsRefreshing(false);
     }
-    fetchData();
   }, [supabase]);
+
+  useEffect(() => {
+    // Muat turun kali pertama
+    fetchData(false);
+
+    // Langgan perubahan Realtime dari Supabase (jika ada pos baru dijadualkan/dipadam)
+    const channel = supabase
+      .channel('calendar-realtime-posts')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'scheduled_posts' },
+        () => {
+          fetchData(true); // Auto-sync di latar belakang apabila database berubah
+        }
+      )
+      .subscribe();
+
+    // Auto-refresh latar belakang setiap 20 saat untuk sentiasa tarik pos terkini dari Facebook
+    const intervalId = setInterval(() => {
+      fetchData(true);
+    }, 20000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(intervalId);
+    };
+  }, [supabase, fetchData]);
 
   // Map ID page kepada Nama Page
   const pageNameMap = useMemo(() => {
@@ -127,7 +156,7 @@ export default function CalendarPostsPage() {
     });
   }, [localPosts, selectedPageId, startDate, endDate, searchQuery]);
 
-  // Group pos dengan toleransi masa dinaikkan kepada 10 Minit (600,000 ms) & kapsyen seiras
+  // Group pos dengan toleransi masa 10 minit & kapsyen seiras
   const groupedPosts = useMemo(() => {
     const groups = [];
 
@@ -140,7 +169,6 @@ export default function CalendarPostsPage() {
         const pDateStr = p.scheduled_at ? new Date(p.scheduled_at).toISOString().split('T')[0] : '';
         const pMsg = (p.message || '').trim();
 
-        // Cari kumpulan sedia ada dalam julat 10 minit pada hari yang sama
         let foundGroup = groups.find(g => {
           const timeDiff = Math.abs(g.baseTime - pTime);
           const sameDay = g.dateStr === pDateStr;
@@ -208,8 +236,15 @@ export default function CalendarPostsPage() {
           >
             ⬅️ Kembali ke Scheduler
           </Link>
-          <h1 style={{ color: '#1877f2', margin: '12px 0 4px 0' }}>Kalendar & Senarai Pos</h1>
-          <p style={{ color: '#65676b', fontSize: '14px', margin: 0 }}>Profil Aktif: <strong>{activeProfile}</strong></p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px' }}>
+            <h1 style={{ color: '#1877f2', margin: 0 }}>Kalendar & Senarai Pos</h1>
+            {isRefreshing && (
+              <span style={{ fontSize: '12px', color: '#28a745', background: '#e2f0d9', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+                🔄 Menyegerak pos terkini...
+              </span>
+            )}
+          </div>
+          <p style={{ color: '#65676b', fontSize: '14px', margin: '4px 0 0 0' }}>Profil Aktif: <strong>{activeProfile}</strong> (Auto-sync aktif)</p>
         </div>
 
         {/* Pemilih Rentang Tarikh (Date Range Picker) */}
