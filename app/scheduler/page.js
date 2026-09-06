@@ -14,7 +14,24 @@ export default function SchedulerPage() {
   const [authLoading, setAuthLoading] = useState(false);
 
   const [pages, setPages] = useState([]);
-  const [selectedPages, setSelectedPages] = useState([]);
+  
+  // Baca terus dari localStorage semasa muat turun awal
+  const [selectedPages, setSelectedPages] = useState(() => {
+    if (typeof window !== 'undefined') {
+      // Semak semua kunci localStorage yang bermula dengan format tersebut jika ada
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('fb_scheduler_selected_pages_')) {
+          try {
+            const saved = localStorage.getItem(key);
+            if (saved) return JSON.parse(saved);
+          } catch (e) {}
+        }
+      }
+    }
+    return [];
+  });
+
   const [profiles, setProfiles] = useState([]);
   const [message, setMessage] = useState('');
   const [imageUrl, setImageUrl] = useState('');
@@ -33,6 +50,7 @@ export default function SchedulerPage() {
   const [fetchingPages, setFetchingPages] = useState(true);
   const [isDraggingMain, setIsDraggingMain] = useState(false);
   const [isDraggingComment, setIsDraggingComment] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState(null);
 
   const supabase = useMemo(() => {
     return createClient(
@@ -43,6 +61,7 @@ export default function SchedulerPage() {
 
   async function initData(userId) {
     setFetchingPages(true);
+    setCurrentUserId(userId);
     
     const { data: pData, error } = await supabase
       .from('pages')
@@ -56,19 +75,23 @@ export default function SchedulerPage() {
     const loadedPages = pData || [];
     setPages(loadedPages);
 
-    // Muat turun pilihan pages yang disimpan dalam localStorage untuk browser ini
+    // Muat turun pilihan pages khusus untuk user ini dari localStorage
     const storageKey = `fb_scheduler_selected_pages_${userId}`;
     const savedSelectedPages = localStorage.getItem(storageKey);
     
     if (savedSelectedPages) {
       try {
         const parsedIds = JSON.parse(savedSelectedPages);
-        // Pastikan ID yang disimpan benar-benar wujud dalam senarai pages semasa
         const validIds = parsedIds.filter(id => loadedPages.some(p => p.page_id === id));
         setSelectedPages(validIds);
       } catch (e) {
-        setSelectedPages([]);
+        // Kekalkan pilihan sedia ada jika gagal parse
       }
+    } else if (selectedPages.length === 0 && loadedPages.length > 0) {
+      // Jika tiada rekod langsung dalam storage, auto-tick semua buat kali pertama
+      const allIds = loadedPages.map(p => p.page_id);
+      setSelectedPages(allIds);
+      localStorage.setItem(storageKey, JSON.stringify(allIds));
     }
 
     const { data: profData, error: profError } = await supabase
@@ -131,6 +154,7 @@ export default function SchedulerPage() {
         setPages([]);
         setSelectedPages([]);
         setProfiles([]);
+        setCurrentUserId(null);
       }
     });
 
@@ -142,17 +166,13 @@ export default function SchedulerPage() {
     return () => subscription.unsubscribe();
   }, [supabase]);
 
-  // Simpan pilihan pages ke localStorage setiap kali ia berubah
+  // Simpan pilihan pages ke localStorage hanya apabila user sudah dikenal pasti dan senarai pages sudah wujud
   useEffect(() => {
-    async function saveSelectedPagesToStorage() {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session && session.user) {
-        const storageKey = `fb_scheduler_selected_pages_${session.user.id}`;
-        localStorage.setItem(storageKey, JSON.stringify(selectedPages));
-      }
+    if (currentUserId && pages.length > 0) {
+      const storageKey = `fb_scheduler_selected_pages_${currentUserId}`;
+      localStorage.setItem(storageKey, JSON.stringify(selectedPages));
     }
-    saveSelectedPagesToStorage();
-  }, [selectedPages, supabase]);
+  }, [selectedPages, currentUserId, pages]);
 
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
@@ -228,6 +248,7 @@ export default function SchedulerPage() {
     setPages([]);
     setSelectedPages([]);
     setProfiles([]);
+    setCurrentUserId(null);
   };
 
   const handleProfileChange = (profileName) => {
