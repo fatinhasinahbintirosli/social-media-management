@@ -83,11 +83,13 @@ export default function QueueSettingsPage() {
 
     async function fetchSettings() {
       setLoading(true);
+      // Gunakan .range(0, 9999) untuk memastikan semua baris timeslots dimuat turun tanpa terhad kepada 1000 baris lalai
       const { data, error } = await supabase
         .from('queue_settings')
         .select('*')
         .eq('profile', currentProfile)
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .range(0, 9999);
 
       if (error) {
         console.error('Ralat memuatkan queue settings:', error);
@@ -235,7 +237,6 @@ export default function QueueSettingsPage() {
     try {
       const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-      // Jika sedang edit, padam dulu data lama kumpulan asal
       if (editingGroupId !== null) {
         const oldGroup = slotGroups.find(g => g.id === editingGroupId);
         if (oldGroup) {
@@ -250,9 +251,7 @@ export default function QueueSettingsPage() {
         }
       }
 
-      // Simpan mengikut gelung per page bagi mengelakkan had saiz muatan Supabase
       for (const pageId of selectedPages) {
-        // Padam rekod lama page ini
         await supabase
           .from('queue_settings')
           .delete()
