@@ -8,10 +8,10 @@ export default function CalendarPostsPage() {
   const [localPosts, setLocalPosts] = useState([]);
   const [pages, setPages] = useState([]);
   const [selectedPageId, setSelectedPageId] = useState('all');
+  const [searchQuery, setSearchQuery] = useState(''); // State untuk carian kapsyen
   const [loading, setLoading] = useState(true);
   const [activeProfile, setActiveProfile] = useState('Default');
   
-  // Tetapkan tarikh pilihan kepada hari ini (format YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState('2026-09-05');
 
   const supabase = useMemo(() => {
@@ -99,20 +99,29 @@ export default function CalendarPostsPage() {
     return map;
   }, [pages]);
 
-  // Tapis pos mengikut Page dan Tarikh
+  // Tapis pos mengikut Page, Tarikh, dan K carian (Search Query)
   const filteredPosts = useMemo(() => {
     return localPosts.filter(p => {
+      // Tapis Page
       const pIds = Array.isArray(p.page_ids) ? p.page_ids : [p.page_id];
       if (selectedPageId !== 'all' && !pIds.includes(selectedPageId)) {
         return false;
       }
+      // Tapis Tarikh
       if (selectedDate && p.scheduled_at) {
         const postDate = new Date(p.scheduled_at).toISOString().split('T')[0];
         if (postDate !== selectedDate) return false;
       }
+      // Tapis Carian Kapsyen (Search Query)
+      if (searchQuery.trim() !== '') {
+        const msg = (p.message || '').toLowerCase();
+        if (!msg.includes(searchQuery.toLowerCase())) {
+          return false;
+        }
+      }
       return true;
     });
-  }, [localPosts, selectedPageId, selectedDate]);
+  }, [localPosts, selectedPageId, selectedDate, searchQuery]);
 
   // Group pos dengan toleransi masa dalam 4 minit & mesej yang seiras
   const groupedPosts = useMemo(() => {
@@ -127,6 +136,7 @@ export default function CalendarPostsPage() {
         const pMsg = (p.message || '').trim();
         const pImg = p.image_url || '';
 
+        // Semak sama ada ada kumpulan sedia ada dalam julat 4 minit (240,000 ms) & kapsyen seiras
         let foundGroup = groups.find(g => {
           const timeDiff = Math.abs(g.baseTime - pTime);
           return g.message === pMsg && g.imageUrl === pImg && timeDiff <= 4 * 60 * 1000;
@@ -180,6 +190,7 @@ export default function CalendarPostsPage() {
   return (
     <main style={{ maxWidth: '1100px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       
+      {/* Header & Navigasi */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
         <div>
           <Link 
@@ -195,6 +206,7 @@ export default function CalendarPostsPage() {
           <p style={{ color: '#65676b', fontSize: '14px', margin: 0 }}>Profil Aktif: <strong>{activeProfile}</strong></p>
         </div>
 
+        {/* Pemilih Tarikh (Date Picker) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#f0f2f5', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ccd0d5' }}>
           <label style={{ fontWeight: 'bold', fontSize: '13px', color: '#333' }}>📅 Pilih Tarikh:</label>
           <input 
@@ -206,28 +218,48 @@ export default function CalendarPostsPage() {
         </div>
       </div>
 
-      {/* Dropdown Filter Page */}
-      <div style={{ background: '#242526', padding: '15px 20px', borderRadius: '12px', marginBottom: '25px', display: 'flex', alignItems: 'center', gap: '15px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-        <span style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px' }}>Tapis Page:</span>
-        <select
-          value={selectedPageId}
-          onChange={(e) => setSelectedPageId(e.target.value)}
-          style={{
-            flex: 1, maxWidth: '350px', padding: '10px 14px', borderRadius: '8px',
-            border: '1px solid #3a3b3c', backgroundColor: '#18191a', color: '#fff', fontSize: '14px', cursor: 'pointer', outline: 'none'
-          }}
-        >
-          <option value="all">🌐 Semua Facebook Pages</option>
-          {pages.map((page) => {
-            const pId = page.page_id || page.id;
-            const pName = page.page_name || page.name;
-            return (
-              <option key={pId} value={pId}>
-                f {pName}
-              </option>
-            );
-          })}
-        </select>
+      {/* Bar Kawalan: Carian Kapsyen & Tapis Page */}
+      <div style={{ background: '#242526', padding: '15px 20px', borderRadius: '12px', marginBottom: '25px', display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+        
+        {/* Kotak Carian Kapsyen */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '250px' }}>
+          <span style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px' }}>Cari Kapsyen:</span>
+          <input 
+            type="text" 
+            placeholder="Taip kata kunci kapsyen..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              flex: 1, padding: '10px 14px', borderRadius: '8px', border: '1px solid #3a3b3c',
+              backgroundColor: '#18191a', color: '#fff', fontSize: '14px', outline: 'none'
+            }}
+          />
+        </div>
+
+        {/* Dropdown Tapis Page */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '250px' }}>
+          <span style={{ color: '#fff', fontWeight: 'bold', fontSize: '14px' }}>Tapis Page:</span>
+          <select
+            value={selectedPageId}
+            onChange={(e) => setSelectedPageId(e.target.value)}
+            style={{
+              flex: 1, padding: '10px 14px', borderRadius: '8px',
+              border: '1px solid #3a3b3c', backgroundColor: '#18191a', color: '#fff', fontSize: '14px', cursor: 'pointer', outline: 'none'
+            }}
+          >
+            <option value="all">🌐 Semua Facebook Pages</option>
+            {pages.map((page) => {
+              const pId = page.page_id || page.id;
+              const pName = page.page_name || page.name;
+              return (
+                <option key={pId} value={pId}>
+                  f {pName}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+
       </div>
 
       {/* Senarai Pos */}
@@ -235,7 +267,7 @@ export default function CalendarPostsPage() {
         <p style={{ textAlign: 'center', color: '#666', padding: '30px' }}>Memuatkan semua pos...</p>
       ) : groupedPosts.length === 0 ? (
         <div style={{ background: '#fff', padding: '40px', textAlign: 'center', borderRadius: '8px', border: '1px solid #ddd', color: '#666' }}>
-          Tiada rekod pos dijumpai pada tarikh <strong>{selectedDate}</strong>.
+          Tiada rekod pos dijumpai berdasarkan carian & tapisan yang dipilih.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -285,6 +317,7 @@ export default function CalendarPostsPage() {
                 </div>
               </div>
 
+              {/* Tindakan (Go to Post & Delete) */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '130px' }}>
                 {item.permalink_urls.length > 0 && (
                   <a 
