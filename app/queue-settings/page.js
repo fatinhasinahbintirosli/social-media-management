@@ -197,7 +197,7 @@ export default function QueueSettingsPage() {
     }
   };
 
-  // Fungsi Auto-Promise: Setiap kali tambah row baru, semua hari auto-tick
+  // Auto-promise: Setiap kali tambah row baharu, semua hari akan auto-tick
   const addRow = () => {
     const allDays = DAYS.map(d => d.index);
     setRows([...rows, { time: '12:00', days: allDays }]);
@@ -224,7 +224,6 @@ export default function QueueSettingsPage() {
     setRows(updated);
   };
 
-  // Penyimpanan berperingkat mikro-batch untuk menampung ribuan rekod tanpa terputus
   const saveGroupSettings = async () => {
     if (!userId || selectedPages.length === 0 || rows.length === 0) {
       alert('Sila pilih sekurang-kurangnya satu Page dan tetapkan sekurang-kurangnya satu timeslot.');
@@ -233,44 +232,21 @@ export default function QueueSettingsPage() {
 
     setLoading(true);
     try {
-      const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
-
-      // 1. Padam rekod lama untuk page yang dipilih secara berperingkat
-      for (const pageId of selectedPages) {
-        await supabase
-          .from('queue_settings')
-          .delete()
-          .eq('profile', currentProfile)
-          .eq('user_id', userId)
-          .eq('page_id', pageId);
-      }
-
-      // 2. Sediakan senarai penuh data baharu
-      const allInsertData = [];
-      selectedPages.forEach(pageId => {
-        sortedRows.forEach(row => {
-          row.days.forEach(day => {
-            allInsertData.push({
-              day_of_week: day,
-              time_slot: `${row.time}:00`,
-              is_active: true,
-              profile: currentProfile,
-              user_id: userId,
-              page_id: pageId
-            });
-          });
-        });
+      const res = await fetch('/api/queue-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          profile: currentProfile,
+          selectedPages,
+          rows
+        })
       });
 
-      // 3. Masukkan secara kelompok kecil (batch 20 rekod sekali hantar) untuk menembusi had saiz pangkalan data
-      const batchSize = 20;
-      for (let i = 0; i < allInsertData.length; i += batchSize) {
-        const batch = allInsertData.slice(i, i + batchSize);
-        const { error: insertError } = await supabase.from('queue_settings').insert(batch);
-        if (insertError) throw insertError;
-      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal menyimpan tetapan.');
 
-      alert('Tetapan Timeslot berjaya disimpan untuk kesemua 25 Page!');
+      alert('Tetapan Timeslot berjaya disimpan untuk kesemua Page!');
       setIsEditing(false);
       window.location.reload();
     } catch (err) {
@@ -437,7 +413,7 @@ export default function QueueSettingsPage() {
 
           <div style={{ display: 'flex', gap: '10px' }}>
             <button onClick={saveGroupSettings} disabled={loading} style={{ background: '#198754', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-              {loading ? 'Menyimpan... (Sila tunggu seketika)' : 'Simpan Tetapan'}
+              {loading ? 'Sedang Menyimpan (Sila tunggu seketika)...' : 'Simpan Tetapan'}
             </button>
             <button onClick={() => setIsEditing(false)} style={{ background: '#27272a', color: '#fff', border: '1px solid #3f3f46', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer' }}>
               Batal
