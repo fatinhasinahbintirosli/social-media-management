@@ -197,6 +197,7 @@ export default function QueueSettingsPage() {
     }
   };
 
+  // Fungsi Auto-Promise: Setiap kali tambah row baru, semua hari akan auto-tick
   const addRow = () => {
     const allDays = DAYS.map(d => d.index);
     setRows([...rows, { time: '12:00', days: allDays }]);
@@ -223,6 +224,7 @@ export default function QueueSettingsPage() {
     setRows(updated);
   };
 
+  // Penyimpanan terus dari browser secara gelung berperingkat untuk mengelakkan had masa pelayan
   const saveGroupSettings = async () => {
     if (!userId || selectedPages.length === 0 || rows.length === 0) {
       alert('Sila pilih sekurang-kurangnya satu Page dan tetapkan sekurang-kurangnya satu timeslot.');
@@ -231,21 +233,45 @@ export default function QueueSettingsPage() {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/queue-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          profile: currentProfile,
-          selectedPages,
-          rows
-        })
-      });
+      const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Gagal menyimpan tetapan.');
+      // Proses simpanan page demi page secara langsung dari pelayar web
+      for (const pageId of selectedPages) {
+        // 1. Padam rekod lama page ini
+        await supabase
+          .from('queue_settings')
+          .delete()
+          .eq('profile', currentProfile)
+          .eq('user_id', userId)
+          .eq('page_id', pageId);
 
-      alert('Tetapan Timeslot berjaya disimpan untuk kesemua 25 Page!');
+        // 2. Bina data untuk page ini
+        const pageInsertData = [];
+        sortedRows.forEach(row => {
+          row.days.forEach(day => {
+            pageInsertData.push({
+              day_of_week: day,
+              time_slot: `${row.time}:00`,
+              is_active: true,
+              profile: currentProfile,
+              user_id: userId,
+              page_id: pageId
+            });
+          });
+        });
+
+        // 3. Masukkan secara kelompok kecil (batch 50 rekod) bagi setiap page
+        if (pageInsertData.length > 0) {
+          const batchSize = 50;
+          for (let i = 0; i < pageInsertData.length; i += batchSize) {
+            const batch = pageInsertData.slice(i, i + batchSize);
+            const { error: insertError } = await supabase.from('queue_settings').insert(batch);
+            if (insertError) throw insertError;
+          }
+        }
+      }
+
+      alert('Tetapan Timeslot berjaya disimpan untuk kesemua Page!');
       setIsEditing(false);
       window.location.reload();
     } catch (err) {
