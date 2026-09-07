@@ -22,48 +22,46 @@ export async function POST(request) {
 
     const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-    // Pecahkan senarai page kepada kumpulan kecil (5 page setiap hantaran) untuk elak timeout
-    const pageChunks = [];
-    for (let i = 0; i < selectedPages.length; i += 5) {
-      pageChunks.push(selectedPages.slice(i, i + 5));
+    // 1. Bersihkan semua tetapan lama untuk profil ini bagi user tersebut
+    const { error: delError } = await supabase
+      .from('queue_settings')
+      .delete()
+      .eq('profile', profile)
+      .eq('user_id', userId)
+      .in('page_id', selectedPages);
+
+    if (delError) {
+      return NextResponse.json({ error: `Ralat memadam data lama: ${delError.message}` }, { status: 500 });
     }
 
-    for (const chunk of pageChunks) {
-      // 1. Padam rekod lama untuk kumpulan page ini
-      await supabase
-        .from('queue_settings')
-        .delete()
-        .eq('profile', profile)
-        .eq('user_id', userId)
-        .in('page_id', chunk);
-
-      // 2. Kumpul data timeslot untuk page-page ini
-      const insertData = [];
-      chunk.forEach(pageId => {
-        sortedRows.forEach(row => {
-          row.days.forEach(day => {
-            insertData.push({
-              day_of_week: day,
-              time_slot: `${row.time}:00`,
-              is_active: true,
-              profile: profile,
-              user_id: userId,
-              page_id: String(pageId)
-            });
+    // 2. Sediakan senarai penuh rekod baharu untuk kesemua page terpilih
+    const allInsertData = [];
+    selectedPages.forEach(pageId => {
+      sortedRows.forEach(row => {
+        row.days.forEach(day => {
+          allInsertData.push({
+            day_of_week: day,
+            time_slot: `${row.time}:00`,
+            is_active: true,
+            profile: profile,
+            user_id: userId,
+            page_id: String(pageId)
           });
         });
       });
+    });
 
-      // 3. Masukkan ke database secara pukal
-      if (insertData.length > 0) {
-        const { error: insertError } = await supabase.from('queue_settings').insert(insertData);
-        if (insertError) {
-          return NextResponse.json({ error: `Gagal simpan batch: ${insertError.message}` }, { status: 500 });
-        }
+    // 3. Masukkan ke database secara berperingkat (batch 100 rekod setiap hantaran)
+    const batchSize = 100;
+    for (let i = 0; i < allInsertData.length; i += batchSize) {
+      const batch = allInsertData.slice(i, i + batchSize);
+      const { error: insertError } = await supabase.from('queue_settings').insert(batch);
+      if (insertError) {
+        return NextResponse.json({ error: `Gagal simpan batch: ${insertError.message}` }, { status: 500 });
       }
     }
 
-    return NextResponse.json({ success: true, message: 'Berjaya disimpan sepenuhnya untuk semua page!' }, { status: 200 });
+    return NextResponse.json({ success: true, message: 'Berjaya disimpan!' }, { status: 200 });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Ralat server.' }, { status: 500 });
   }
