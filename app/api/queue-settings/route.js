@@ -22,21 +22,17 @@ export async function POST(request) {
 
     const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-    // Lakukan proses pemadaman dan penyimpanan secara berperingkat untuk setiap page
+    // Proses setiap page secara SATU PERSATU untuk mengelakkan muatan berlebihan (payload overload)
     for (const pageId of selectedPages) {
       // 1. Padam rekod lama untuk page ini
-      const { error: deleteError } = await supabase
+      await supabase
         .from('queue_settings')
         .delete()
         .eq('profile', profile)
         .eq('user_id', userId)
         .eq('page_id', pageId);
 
-      if (deleteError) {
-        console.error(`Gagal padam page ${pageId}:`, deleteError.message);
-      }
-
-      // 2. Sediakan data timeslot
+      // 2. Bina senarai data untuk page ini
       const pageInsertData = [];
       sortedRows.forEach(row => {
         row.days.forEach(day => {
@@ -51,20 +47,20 @@ export async function POST(request) {
         });
       });
 
-      // 3. Masukkan data ke pangkalan data dalam kelompok kecil (batch 50 rekod)
+      // 3. Masukkan secara kelompok kecil (batch 100 rekod) bagi setiap page
       if (pageInsertData.length > 0) {
-        const batchSize = 50;
+        const batchSize = 100;
         for (let i = 0; i < pageInsertData.length; i += batchSize) {
           const batch = pageInsertData.slice(i, i + batchSize);
           const { error: insertError } = await supabase.from('queue_settings').insert(batch);
           if (insertError) {
-            return NextResponse.json({ error: `Gagal simpan page ${pageId}: ${insertError.message}` }, { status: 500 });
+            return NextResponse.json({ error: `Gagal simpan page: ${insertError.message}` }, { status: 500 });
           }
         }
       }
     }
 
-    return NextResponse.json({ success: true, message: 'Tetapan berjaya disimpan untuk kesemua page!' }, { status: 200 });
+    return NextResponse.json({ success: true, message: 'Berjaya disimpan untuk kesemua page!' }, { status: 200 });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Ralat server.' }, { status: 500 });
   }
