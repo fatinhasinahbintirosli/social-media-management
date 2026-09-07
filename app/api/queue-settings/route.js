@@ -22,7 +22,7 @@ export async function POST(request) {
 
     const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-    // Pecahkan 25 page kepada kumpulan kecil (5 page setiap hantaran) untuk elak muatan berlebihan
+    // Pecahkan senarai page kepada kumpulan kecil (5 page setiap hantaran) untuk elak timeout
     const pageChunks = [];
     for (let i = 0; i < selectedPages.length; i += 5) {
       pageChunks.push(selectedPages.slice(i, i + 5));
@@ -30,18 +30,14 @@ export async function POST(request) {
 
     for (const chunk of pageChunks) {
       // 1. Padam rekod lama untuk kumpulan page ini
-      const { error: delError } = await supabase
+      await supabase
         .from('queue_settings')
         .delete()
         .eq('profile', profile)
         .eq('user_id', userId)
         .in('page_id', chunk);
 
-      if (delError) {
-        console.error('Ralat padam:', delError.message);
-      }
-
-      // 2. Kumpul data timeslot untuk 5 page ini sahaja
+      // 2. Kumpul data timeslot untuk page-page ini
       const insertData = [];
       chunk.forEach(pageId => {
         sortedRows.forEach(row => {
@@ -52,13 +48,13 @@ export async function POST(request) {
               is_active: true,
               profile: profile,
               user_id: userId,
-              page_id: pageId
+              page_id: String(pageId)
             });
           });
         });
       });
 
-      // 3. Masukkan ke database secara pukal yang selamat
+      // 3. Masukkan ke database secara pukal
       if (insertData.length > 0) {
         const { error: insertError } = await supabase.from('queue_settings').insert(insertData);
         if (insertError) {
