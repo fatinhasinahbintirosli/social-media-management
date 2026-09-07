@@ -409,7 +409,7 @@ export default function QueueSettingsPage() {
                     <button onClick={() => handleDeleteGroup(group)} title="Padam" style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '16px' }}>
                       🗑️
                     </button>
-                    <button onClick={() => handleToggleGroupOpen(group.id)} style::={{ background: 'none', border: 'none', color: '#a1a1aa', cursor: 'pointer', fontSize: '16px' }}>
+                    <button onClick={() => handleToggleGroupOpen(group.id)} style={{ background: 'none', border: 'none', color: '#a1a1aa', cursor: 'pointer', fontSize: '16px' }}>
                       {group.isOpen ? '▲' : '▼'}
                     </button>
                   </div>
