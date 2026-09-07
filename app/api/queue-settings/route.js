@@ -22,20 +22,25 @@ export async function POST(request) {
 
     const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-    // Padam rekod lama untuk semua page yang terlibat secara serentak
-    await supabase
-      .from('queue_settings')
-      .delete()
-      .eq('profile', profile)
-      .eq('user_id', userId)
-      .in('page_id', selectedPages);
+    // Lakukan proses pemadaman dan penyimpanan secara berperingkat untuk setiap page
+    for (const pageId of selectedPages) {
+      // 1. Padam rekod lama untuk page ini
+      const { error: deleteError } = await supabase
+        .from('queue_settings')
+        .delete()
+        .eq('profile', profile)
+        .eq('user_id', userId)
+        .eq('page_id', pageId);
 
-    // Kumpul semua data untuk dimasukkan
-    const allInsertData = [];
-    selectedPages.forEach(pageId => {
+      if (deleteError) {
+        console.error(`Gagal padam page ${pageId}:`, deleteError.message);
+      }
+
+      // 2. Sediakan data timeslot
+      const pageInsertData = [];
       sortedRows.forEach(row => {
         row.days.forEach(day => {
-          allInsertData.push({
+          pageInsertData.push({
             day_of_week: day,
             time_slot: `${row.time}:00`,
             is_active: true,
@@ -45,19 +50,21 @@ export async function POST(request) {
           });
         });
       });
-    });
 
-    // Masukkan dalam kelompok 200 rekod untuk elak had saiz
-    const batchSize = 200;
-    for (let i = 0; i < allInsertData.length; i += batchSize) {
-      const batch = allInsertData.slice(i, i + batchSize);
-      const { error: insertError } = await supabase.from('queue_settings').insert(batch);
-      if (insertError) {
-        return NextResponse.json({ error: insertError.message }, { status: 500 });
+      // 3. Masukkan data ke pangkalan data dalam kelompok kecil (batch 50 rekod)
+      if (pageInsertData.length > 0) {
+        const batchSize = 50;
+        for (let i = 0; i < pageInsertData.length; i += batchSize) {
+          const batch = pageInsertData.slice(i, i + batchSize);
+          const { error: insertError } = await supabase.from('queue_settings').insert(batch);
+          if (insertError) {
+            return NextResponse.json({ error: `Gagal simpan page ${pageId}: ${insertError.message}` }, { status: 500 });
+          }
+        }
       }
     }
 
-    return NextResponse.json({ success: true, message: 'Berjaya disimpan!' }, { status: 200 });
+    return NextResponse.json({ success: true, message: 'Tetapan berjaya disimpan untuk kesemua page!' }, { status: 200 });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Ralat server.' }, { status: 500 });
   }
