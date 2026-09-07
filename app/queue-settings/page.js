@@ -197,7 +197,6 @@ export default function QueueSettingsPage() {
     }
   };
 
-  // Auto-promise: Setiap kali tambah row baharu, semua hari auto-tick
   const addRow = () => {
     const allDays = DAYS.map(d => d.index);
     setRows([...rows, { time: '12:00', days: allDays }]);
@@ -224,6 +223,7 @@ export default function QueueSettingsPage() {
     setRows(updated);
   };
 
+  // Proses simpanan terus dari browser secara per-page bersiri dengan selamat
   const saveGroupSettings = async () => {
     if (!userId || selectedPages.length === 0 || rows.length === 0) {
       alert('Sila pilih sekurang-kurangnya satu Page dan tetapkan sekurang-kurangnya satu timeslot.');
@@ -232,19 +232,40 @@ export default function QueueSettingsPage() {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/queue-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          profile: currentProfile,
-          selectedPages,
-          rows
-        })
-      });
+      const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Gagal menyimpan tetapan.');
+      // Lakukan pemadaman dan penyimpanan halaman demi halaman secara langsung
+      for (const pageId of selectedPages) {
+        await supabase
+          .from('queue_settings')
+          .delete()
+          .eq('profile', currentProfile)
+          .eq('user_id', userId)
+          .eq('page_id', String(pageId));
+
+        const pageInsertData = [];
+        sortedRows.forEach(row => {
+          row.days.forEach(day => {
+            pageInsertData.push({
+              day_of_week: day,
+              time_slot: `${row.time}:00`,
+              is_active: true,
+              profile: currentProfile,
+              user_id: userId,
+              page_id: String(pageId)
+            });
+          });
+        });
+
+        if (pageInsertData.length > 0) {
+          const batchSize = 50;
+          for (let i = 0; i < pageInsertData.length; i += batchSize) {
+            const batch = pageInsertData.slice(i, i + batchSize);
+            const { error: insertError } = await supabase.from('queue_settings').insert(batch);
+            if (insertError) throw insertError;
+          }
+        }
+      }
 
       alert('Tetapan Timeslot berjaya disimpan untuk kesemua Page!');
       setIsEditing(false);
@@ -413,7 +434,7 @@ export default function QueueSettingsPage() {
 
           <div style={{ display: 'flex', gap: '10px' }}>
             <button onClick={saveGroupSettings} disabled={loading} style={{ background: '#198754', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-              {loading ? 'Sedang Menyimpan (Sila tunggu seketika)...' : 'Simpan Tetapan'}
+              {loading ? 'Sedang Menyimpan (Sila tunggu sehingga selesai)...' : 'Simpan Tetapan'}
             </button>
             <button onClick={() => setIsEditing(false)} style={{ background: '#27272a', color: '#fff', border: '1px solid #3f3f46', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer' }}>
               Batal
