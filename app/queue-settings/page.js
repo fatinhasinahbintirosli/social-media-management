@@ -87,8 +87,7 @@ export default function QueueSettingsPage() {
         .from('queue_settings')
         .select('*')
         .eq('profile', currentProfile)
-        .eq('user_id', userId)
-        .range(0, 9999);
+        .eq('user_id', userId);
 
       if (error) {
         console.error('Ralat memuatkan queue settings:', error);
@@ -96,37 +95,10 @@ export default function QueueSettingsPage() {
         return;
       }
 
-      const pageToSlots = {};
-      (data || []).forEach(item => {
-        if (!item.page_id || !item.time_slot) return;
-        if (!pageToSlots[item.page_id]) {
-          pageToSlots[item.page_id] = [];
-        }
-        pageToSlots[item.page_id].push({
-          time: item.time_slot.substring(0, 5),
-          day: item.day_of_week
-        });
-      });
-
-      const groupMap = {};
-      Object.keys(pageToSlots).forEach(pageId => {
-        const slots = pageToSlots[pageId];
-        const sortedSlots = slots.sort((a, b) => a.time.localeCompare(b.time) || a.day - b.day);
-        const signature = sortedSlots.map(s => `${s.time}-${s.day}`).join('|');
-        
-        if (!groupMap[signature]) {
-          groupMap[signature] = {
-            pageIds: [],
-            slots: sortedSlots
-          };
-        }
-        groupMap[signature].pageIds.push(pageId);
-      });
-
-      const formattedGroups = Object.keys(groupMap).map((sig, idx) => ({
-        id: idx + 1,
-        pageIds: groupMap[sig].pageIds,
-        rows: formatGroupRows(groupMap[sig].slots),
+      const formattedGroups = (data || []).map((item, idx) => ({
+        id: item.id || idx + 1,
+        pageIds: item.page_ids || [],
+        rows: item.time_slots || [],
         isOpen: false
       }));
 
@@ -136,25 +108,6 @@ export default function QueueSettingsPage() {
 
     fetchSettings();
   }, [currentProfile, userId, supabase]);
-
-  const formatGroupRows = (rawSlots) => {
-    const grouped = {};
-    rawSlots.forEach(s => {
-      if (!grouped[s.time]) {
-        grouped[s.time] = [];
-      }
-      if (!grouped[s.time].includes(s.day)) {
-        grouped[s.time].push(s.day);
-      }
-    });
-
-    let rowsArr = Object.keys(grouped).map(time => ({
-      time,
-      days: grouped[time]
-    }));
-    rowsArr.sort((a, b) => a.time.localeCompare(b.time));
-    return rowsArr;
-  };
 
   const handleProfileChange = (profileName) => {
     setCurrentProfile(profileName);
@@ -223,7 +176,6 @@ export default function QueueSettingsPage() {
     setRows(updated);
   };
 
-  // Proses simpanan terus dari browser secara per-page bersiri dengan selamat
   const saveGroupSettings = async () => {
     if (!userId || selectedPages.length === 0 || rows.length === 0) {
       alert('Sila pilih sekurang-kurangnya satu Page dan tetapkan sekurang-kurangnya satu timeslot.');
@@ -232,42 +184,21 @@ export default function QueueSettingsPage() {
 
     setLoading(true);
     try {
-      const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
+      const res = await fetch('/api/queue-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          profile: currentProfile,
+          selectedPages,
+          rows
+        })
+      });
 
-      // Lakukan pemadaman dan penyimpanan halaman demi halaman secara langsung
-      for (const pageId of selectedPages) {
-        await supabase
-          .from('queue_settings')
-          .delete()
-          .eq('profile', currentProfile)
-          .eq('user_id', userId)
-          .eq('page_id', String(pageId));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal menyimpan tetapan.');
 
-        const pageInsertData = [];
-        sortedRows.forEach(row => {
-          row.days.forEach(day => {
-            pageInsertData.push({
-              day_of_week: day,
-              time_slot: `${row.time}:00`,
-              is_active: true,
-              profile: currentProfile,
-              user_id: userId,
-              page_id: String(pageId)
-            });
-          });
-        });
-
-        if (pageInsertData.length > 0) {
-          const batchSize = 50;
-          for (let i = 0; i < pageInsertData.length; i += batchSize) {
-            const batch = pageInsertData.slice(i, i + batchSize);
-            const { error: insertError } = await supabase.from('queue_settings').insert(batch);
-            if (insertError) throw insertError;
-          }
-        }
-      }
-
-      alert('Tetapan Timeslot berjaya disimpan untuk kesemua Page!');
+      alert('Tetapan Timeslot berjaya disimpan sebagai satu kumpulan!');
       setIsEditing(false);
       window.location.reload();
     } catch (err) {
@@ -277,15 +208,13 @@ export default function QueueSettingsPage() {
   };
 
   const handleDeleteGroup = async (group) => {
-    if (!confirm('Adakah anda pasti mahu memadam timeslots untuk page-page ini?')) return;
+    if (!confirm('Adakah anda pasti mahu memadam timeslots ini?')) return;
     setLoading(true);
     try {
       await supabase
         .from('queue_settings')
         .delete()
-        .eq('profile', currentProfile)
-        .eq('user_id', userId)
-        .in('page_id', group.pageIds);
+        .eq('id', group.id);
 
       setSlotGroups(slotGroups.filter(g => g.id !== group.id));
       alert('Berjaya dipadam!');
@@ -306,7 +235,7 @@ export default function QueueSettingsPage() {
             ← Kembali ke Scheduler
           </Link>
           <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>Custom Timeslots ({currentProfile})</h1>
-          <p style={{ fontSize: '13px', color: '#a1a1aa', margin: '5px 0 0 0' }}>Uruskan jadual masa secara berasingan atau berkumpulan mengikut Page Facebook.</p>
+          <p style={{ fontSize: '13px', color: '#a1a1aa', margin: '5px 0 0 0' }}>Uruskan jadual masa secara berkumpulan mengikut standard Social Champ.</p>
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -358,7 +287,7 @@ export default function QueueSettingsPage() {
           </div>
 
           <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', color: '#a1a1aa' }}>Pilih Page(s) yang ingin disetkan masa ini:</label>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', color: '#a1a1aa' }}>Pilih Page(s) dalam kumpulan ini:</label>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', maxHeight: '180px', overflowY: 'auto', padding: '5px', background: '#121212', borderRadius: '6px', border: '1px solid #27272a' }}>
               {pages.map(p => {
                 const isSelected = selectedPages.includes(p.page_id);
@@ -434,7 +363,7 @@ export default function QueueSettingsPage() {
 
           <div style={{ display: 'flex', gap: '10px' }}>
             <button onClick={saveGroupSettings} disabled={loading} style={{ background: '#198754', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
-              {loading ? 'Sedang Menyimpan (Sila tunggu sehingga selesai)...' : 'Simpan Tetapan'}
+              {loading ? 'Menyimpan...' : 'Simpan Tetapan'}
             </button>
             <button onClick={() => setIsEditing(false)} style={{ background: '#27272a', color: '#fff', border: '1px solid #3f3f46', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer' }}>
               Batal
@@ -480,7 +409,7 @@ export default function QueueSettingsPage() {
                     <button onClick={() => handleDeleteGroup(group)} title="Padam" style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '16px' }}>
                       🗑️
                     </button>
-                    <button onClick={() => handleToggleGroupOpen(group.id)} style={{ background: 'none', border: 'none', color: '#a1a1aa', cursor: 'pointer', fontSize: '16px' }}>
+                    <button onClick={() => handleToggleGroupOpen(group.id)} style::={{ background: 'none', border: 'none', color: '#a1a1aa', cursor: 'pointer', fontSize: '16px' }}>
                       {group.isOpen ? '▲' : '▼'}
                     </button>
                   </div>
