@@ -22,6 +22,7 @@ export default function QueueSettingsPage() {
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState(null);
 
+  // State untuk borang (Cipta/Edit satu kumpulan spesifik)
   const [isEditing, setIsEditing] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [selectedPages, setSelectedPages] = useState([]);
@@ -46,6 +47,7 @@ export default function QueueSettingsPage() {
       const currentUserId = session.user.id;
       setUserId(currentUserId);
 
+      // Ambil profil
       const { data: profData } = await supabase
         .from('profiles')
         .select('*')
@@ -65,6 +67,7 @@ export default function QueueSettingsPage() {
         }
       }
 
+      // Ambil semua pages
       const { data: pData } = await supabase
         .from('pages')
         .select('page_id, page_name')
@@ -78,6 +81,7 @@ export default function QueueSettingsPage() {
     initData();
   }, [supabase]);
 
+  // Muat turun timeslots dan KUMPULKAN secara ketat mengikut set page_ids yang dikongsi bersama
   useEffect(() => {
     if (!currentProfile || !userId) return;
 
@@ -96,6 +100,7 @@ export default function QueueSettingsPage() {
         return;
       }
 
+      // Petakan setiap page_id kepada senarai slot masanya
       const pageToSlots = {};
       (data || []).forEach(item => {
         if (!item.page_id || !item.time_slot) return;
@@ -108,10 +113,10 @@ export default function QueueSettingsPage() {
         });
       });
 
+      // Kumpulkan page yang mempunyai tandatangan (signature) slot masa yang SEIRAS SAMA
       const groupMap = {};
       Object.keys(pageToSlots).forEach(pageId => {
         const slots = pageToSlots[pageId];
-        // Susun dengan tepat untuk elak perbezaan susunan array
         const sortedSlots = slots.sort((a, b) => a.time.localeCompare(b.time) || a.day - b.day);
         const signature = sortedSlots.map(s => `${s.time}-${s.day}`).join('|');
         
@@ -164,7 +169,7 @@ export default function QueueSettingsPage() {
   };
 
   const handleStartCreate = () => {
-    setSelectedPages(pages.map(p => p.page_id));
+    setSelectedPages([]); // Kosongkan dahulu supaya user boleh pilih spesifik
     const allDays = DAYS.map(d => d.index);
     setRows([{ time: '09:00', days: allDays }]);
     setEditingGroupId(null);
@@ -184,10 +189,6 @@ export default function QueueSettingsPage() {
 
   const handlePageToggleInForm = (pageId) => {
     if (selectedPages.includes(pageId)) {
-      if (selectedPages.length === 1) {
-        alert('Sekurang-kurangnya satu Page perlu dipilih.');
-        return;
-      }
       setSelectedPages(selectedPages.filter(id => id !== pageId));
     } else {
       setSelectedPages([...selectedPages, pageId]);
@@ -230,7 +231,7 @@ export default function QueueSettingsPage() {
 
   const saveGroupSettings = async () => {
     if (!userId || selectedPages.length === 0 || rows.length === 0) {
-      alert('Sila pilih sekurang-kurangnya satu Page dan tetapan timeslot.');
+      alert('Sila pilih sekurang-kurangnya satu Page dan tetapkan sekurang-kurangnya satu timeslot.');
       return;
     }
 
@@ -250,7 +251,7 @@ export default function QueueSettingsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal menyimpan tetapan.');
 
-      alert('Tetapan Custom Timeslots berjaya disimpan untuk semua Page terpilih!');
+      alert('Tetapan Timeslot berjaya disimpan!');
       setIsEditing(false);
       window.location.reload();
     } catch (err) {
@@ -260,7 +261,7 @@ export default function QueueSettingsPage() {
   };
 
   const handleDeleteGroup = async (group) => {
-    if (!confirm('Adakah anda pasti mahu memadam timeslots untuk page ini?')) return;
+    if (!confirm('Adakah anda pasti mahu memadam timeslots untuk page-page ini?')) return;
     setLoading(true);
     try {
       await supabase
@@ -289,7 +290,7 @@ export default function QueueSettingsPage() {
             ← Kembali ke Scheduler
           </Link>
           <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>Custom Timeslots ({currentProfile})</h1>
-          <p style={{ fontSize: '13px', color: '#a1a1aa', margin: '5px 0 0 0' }}>Maximize engagement with your audience and ensure that your posts get seen at the right time by selecting your best days.</p>
+          <p style={{ fontSize: '13px', color: '#a1a1aa', margin: '5px 0 0 0' }}>Uruskan jadual masa secara berasingan atau berkumpulan mengikut Page Facebook.</p>
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -329,7 +330,7 @@ export default function QueueSettingsPage() {
         <div style={{ backgroundColor: '#18181b', padding: '25px', borderRadius: '8px', border: '1px solid #27272a', marginBottom: '25px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
             <h3 style={{ fontSize: '16px', margin: 0, color: '#fff' }}>
-              {editingGroupId !== null ? 'Edit Custom Timeslots' : 'Cipta Custom Timeslots Baharu'}
+              {editingGroupId !== null ? 'Edit Timeslots' : 'Cipta Timeslots Baharu'}
             </h3>
             <button 
               type="button" 
@@ -341,8 +342,8 @@ export default function QueueSettingsPage() {
           </div>
 
           <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', color: '#a1a1aa' }}>Pilih Page(s):</label>
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', maxHeight: '180px', overflowY: 'auto', padding: '5px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', color: '#a1a1aa' }}>Pilih Page(s) yang ingin disetkan masa ini:</label>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', maxHeight: '180px', overflowY: 'auto', padding: '5px', background: '#121212', borderRadius: '6px', border: '1px solid #27272a' }}>
               {pages.map(p => {
                 const isSelected = selectedPages.includes(p.page_id);
                 return (
@@ -351,12 +352,12 @@ export default function QueueSettingsPage() {
                     type="button"
                     onClick={() => handlePageToggleInForm(p.page_id)}
                     style={{
-                      padding: '8px 14px',
+                      padding: '8px 12px',
                       borderRadius: '6px',
                       border: `1px solid ${isSelected ? '#1877f2' : '#3f3f46'}`,
                       background: isSelected ? '#1e3a8a' : '#27272a',
                       color: '#fff',
-                      fontSize: '13px',
+                      fontSize: '12px',
                       cursor: 'pointer',
                       fontWeight: 'bold'
                     }}
