@@ -184,6 +184,9 @@ export default function QueueSettingsPage() {
 
     setLoading(true);
     try {
+      // Susun waktu secara automatik dari yang paling awal (pagi) ke yang paling lewat (malam)
+      const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
+
       const res = await fetch('/api/queue-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -191,14 +194,14 @@ export default function QueueSettingsPage() {
           userId,
           profile: currentProfile,
           selectedPages,
-          rows
+          rows: sortedRows
         })
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal menyimpan tetapan.');
 
-      alert('Tetapan Timeslot berjaya disimpan sebagai satu kumpulan!');
+      alert('Tetapan Timeslot berjaya disimpan dan disusun rapi!');
       setIsEditing(false);
       window.location.reload();
     } catch (err) {
