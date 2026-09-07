@@ -22,17 +22,21 @@ export async function POST(request) {
 
     const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-    // Proses simpanan SATU PERSATU Page secara bersiri dengan selamat
+    // Lakukan proses untuk setiap page satu persatu dengan selamat
     for (const pageId of selectedPages) {
-      // 1. Padam rekod lama page ini
-      await supabase
+      // 1. Padam rekod lama untuk page ini
+      const { error: delError } = await supabase
         .from('queue_settings')
         .delete()
         .eq('profile', profile)
         .eq('user_id', userId)
         .eq('page_id', pageId);
 
-      // 2. Sediakan data
+      if (delError) {
+        console.error(`Ralat padam page ${pageId}:`, delError.message);
+      }
+
+      // 2. Sediakan data timeslot
       const pageInsertData = [];
       sortedRows.forEach(row => {
         row.days.forEach(day => {
@@ -47,20 +51,20 @@ export async function POST(request) {
         });
       });
 
-      // 3. Masukkan secara kelompok kecil (batch 30 rekod) untuk setiap page
+      // 3. Masukkan secara kelompok kecil (batch 30 rekod) bagi setiap page
       if (pageInsertData.length > 0) {
         const batchSize = 30;
         for (let i = 0; i < pageInsertData.length; i += batchSize) {
           const batch = pageInsertData.slice(i, i + batchSize);
           const { error: insertError } = await supabase.from('queue_settings').insert(batch);
           if (insertError) {
-            return NextResponse.json({ error: `Gagal simpan page: ${insertError.message}` }, { status: 500 });
+            return NextResponse.json({ error: `Gagal simpan page ${pageId}: ${insertError.message}` }, { status: 500 });
           }
         }
       }
     }
 
-    return NextResponse.json({ success: true, message: 'Berjaya disimpan!' }, { status: 200 });
+    return NextResponse.json({ success: true, message: 'Berjaya disimpan sepenuhnya!' }, { status: 200 });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Ralat server.' }, { status: 500 });
   }
