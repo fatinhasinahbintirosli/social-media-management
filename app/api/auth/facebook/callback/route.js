@@ -1,11 +1,9 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 
 export async function GET(request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get('code');
   const errorParam = requestUrl.searchParams.get('error');
-  const stateUserId = requestUrl.searchParams.get('state');
 
   if (errorParam) {
     return NextResponse.redirect(`${requestUrl.origin}/scheduler?error=facebook_denied`);
@@ -14,13 +12,6 @@ export async function GET(request) {
   if (!code) {
     return NextResponse.redirect(`${requestUrl.origin}/scheduler?error=no_code`);
   }
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: { persistSession: false },
-  });
 
   const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '1746001423192963';
   const appSecret = process.env.FACEBOOK_APP_SECRET;
@@ -50,40 +41,33 @@ export async function GET(request) {
       return NextResponse.redirect(`${requestUrl.origin}/scheduler?error=no_pages_found`);
     }
 
-    // Tentukan user_id dengan mekanisme fallback yang lebih kebal
-    let userId = stateUserId && stateUserId !== 'undefined' && stateUserId !== 'null' ? stateUserId : null;
+    // Daripada terus simpan ke Supabase, kita hantar senarai page ke halaman /select-pages melalui HTML Script sessionStorage
+    const serializedPages = JSON.stringify(pages);
 
-    if (!userId) {
-      const { data: existingPages } = await supabase
-        .from('pages')
-        .select('user_id')
-        .not('user_id', 'is', null)
-        .limit(1);
+    const htmlResponse = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>Memproses Akaun...</title></head>
+        <body style="background:#121212; color:#fff; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif;">
+          <div style="text-align:center;">
+            <h3>Berjaya log masuk Facebook! Sedang memuatkan senarai Page...</h3>
+          </div>
+          <script>
+            try {
+              sessionStorage.setItem('fb_temp_pages', '${serializedPages.replace(/'/g, "\\'")}');
+              window.location.href = '/select-pages';
+            } catch (e) {
+              alert('Ralat menyimpan sesi sementara.');
+              window.location.href = '/scheduler';
+            }
+          </script>
+        </body>
+      </html>
+    `;
 
-      if (existingPages && existingPages.length > 0) {
-        userId = existingPages[0].user_id;
-      }
-    }
-
-    // Fallback muktamad supaya ia tidak gagal walau sesinya terputus
-    if (!userId) {
-      userId = 'fatin-default-user-id';
-    }
-
-    for (const page of pages) {
-      await supabase
-        .from('pages')
-        .upsert({
-          user_id: userId,
-          page_id: page.id,
-          page_name: page.name,
-          access_token: page.access_token,
-          is_active: true,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'page_id' });
-    }
-
-    return NextResponse.redirect(`${requestUrl.origin}/scheduler?status=success`);
+    return new Response(htmlResponse, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
 
   } catch (err) {
     console.error('Ralat proses Facebook Auth:', err.message);
