@@ -22,7 +22,6 @@ export default function QueueSettingsPage() {
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState(null);
 
-  // State untuk borang (Cipta/Edit satu kumpulan spesifik)
   const [isEditing, setIsEditing] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [selectedPages, setSelectedPages] = useState([]);
@@ -47,7 +46,6 @@ export default function QueueSettingsPage() {
       const currentUserId = session.user.id;
       setUserId(currentUserId);
 
-      // Ambil profil
       const { data: profData } = await supabase
         .from('profiles')
         .select('*')
@@ -67,7 +65,6 @@ export default function QueueSettingsPage() {
         }
       }
 
-      // Ambil semua pages
       const { data: pData } = await supabase
         .from('pages')
         .select('page_id, page_name')
@@ -81,7 +78,6 @@ export default function QueueSettingsPage() {
     initData();
   }, [supabase]);
 
-  // Muat turun timeslots dan KUMPULKAN secara ketat mengikut set page_ids yang dikongsi bersama
   useEffect(() => {
     if (!currentProfile || !userId) return;
 
@@ -100,7 +96,6 @@ export default function QueueSettingsPage() {
         return;
       }
 
-      // Petakan setiap page_id kepada senarai slot masanya
       const pageToSlots = {};
       (data || []).forEach(item => {
         if (!item.page_id || !item.time_slot) return;
@@ -113,7 +108,6 @@ export default function QueueSettingsPage() {
         });
       });
 
-      // Kumpulkan page yang mempunyai tandatangan (signature) slot masa yang SEIRAS SAMA
       const groupMap = {};
       Object.keys(pageToSlots).forEach(pageId => {
         const slots = pageToSlots[pageId];
@@ -169,7 +163,7 @@ export default function QueueSettingsPage() {
   };
 
   const handleStartCreate = () => {
-    setSelectedPages([]); // Kosongkan dahulu supaya user boleh pilih spesifik
+    setSelectedPages([]); 
     const allDays = DAYS.map(d => d.index);
     setRows([{ time: '09:00', days: allDays }]);
     setEditingGroupId(null);
@@ -229,6 +223,7 @@ export default function QueueSettingsPage() {
     setRows(updated);
   };
 
+  // Simpan terus dari browser secara kelompok kecil untuk memastikan kesemua 20+ page berjaya disimpan
   const saveGroupSettings = async () => {
     if (!userId || selectedPages.length === 0 || rows.length === 0) {
       alert('Sila pilih sekurang-kurangnya satu Page dan tetapkan sekurang-kurangnya satu timeslot.');
@@ -237,21 +232,42 @@ export default function QueueSettingsPage() {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/queue-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          profile: currentProfile,
-          selectedPages,
-          rows
-        })
+      const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
+
+      // 1. Padam rekod lama untuk kesemua page yang dipilih
+      await supabase
+        .from('queue_settings')
+        .delete()
+        .eq('profile', currentProfile)
+        .eq('user_id', userId)
+        .in('page_id', selectedPages);
+
+      // 2. Sediakan senarai data baharu
+      const allInsertData = [];
+      selectedPages.forEach(pageId => {
+        sortedRows.forEach(row => {
+          row.days.forEach(day => {
+            allInsertData.push({
+              day_of_week: day,
+              time_slot: `${row.time}:00`,
+              is_active: true,
+              profile: currentProfile,
+              user_id: userId,
+              page_id: pageId
+            });
+          });
+        });
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Gagal menyimpan tetapan.');
+      // 3. Masukkan secara berperingkat (batch 200 rekod setiap hantaran)
+      const batchSize = 200;
+      for (let i = 0; i < allInsertData.length; i += batchSize) {
+        const batch = allInsertData.slice(i, i + batchSize);
+        const { error: insertError } = await supabase.from('queue_settings').insert(batch);
+        if (insertError) throw insertError;
+      }
 
-      alert('Tetapan Timeslot berjaya disimpan!');
+      alert('Tetapan Timeslot berjaya disimpan untuk semua Page!');
       setIsEditing(false);
       window.location.reload();
     } catch (err) {
