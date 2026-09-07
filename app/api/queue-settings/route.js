@@ -22,24 +22,26 @@ export async function POST(request) {
 
     const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-    // 1. Bersihkan semua tetapan lama untuk profil ini bagi user tersebut
-    const { error: delError } = await supabase
-      .from('queue_settings')
-      .delete()
-      .eq('profile', profile)
-      .eq('user_id', userId)
-      .in('page_id', selectedPages);
+    // Proses penyimpanan secara halaman demi halaman (page-by-page) 
+    // untuk memastikan tiada data tercicir dan kesemua page mendapat tetapan yang seiras
+    for (const pageId of selectedPages) {
+      // 1. Padam rekod lama untuk page ini
+      const { error: delError } = await supabase
+        .from('queue_settings')
+        .delete()
+        .eq('profile', profile)
+        .eq('user_id', userId)
+        .eq('page_id', String(pageId));
 
-    if (delError) {
-      return NextResponse.json({ error: `Ralat memadam data lama: ${delError.message}` }, { status: 500 });
-    }
+      if (delError) {
+        console.error(`Gagal padam page ${pageId}:`, delError.message);
+      }
 
-    // 2. Sediakan senarai penuh rekod baharu untuk kesemua page terpilih
-    const allInsertData = [];
-    selectedPages.forEach(pageId => {
+      // 2. Sediakan senarai slot untuk page ini
+      const pageInsertData = [];
       sortedRows.forEach(row => {
         row.days.forEach(day => {
-          allInsertData.push({
+          pageInsertData.push({
             day_of_week: day,
             time_slot: `${row.time}:00`,
             is_active: true,
@@ -49,19 +51,21 @@ export async function POST(request) {
           });
         });
       });
-    });
 
-    // 3. Masukkan ke database secara berperingkat (batch 100 rekod setiap hantaran)
-    const batchSize = 100;
-    for (let i = 0; i < allInsertData.length; i += batchSize) {
-      const batch = allInsertData.slice(i, i + batchSize);
-      const { error: insertError } = await supabase.from('queue_settings').insert(batch);
-      if (insertError) {
-        return NextResponse.json({ error: `Gagal simpan batch: ${insertError.message}` }, { status: 500 });
+      // 3. Masukkan ke database dalam kelompok kecil (batch 50 rekod) bagi page tersebut
+      if (pageInsertData.length > 0) {
+        const batchSize = 50;
+        for (let i = 0; i < pageInsertData.length; i += batchSize) {
+          const batch = pageInsertData.slice(i, i + batchSize);
+          const { error: insertError } = await supabase.from('queue_settings').insert(batch);
+          if (insertError) {
+            return NextResponse.json({ error: `Gagal simpan page ${pageId}: ${insertError.message}` }, { status: 500 });
+          }
+        }
       }
     }
 
-    return NextResponse.json({ success: true, message: 'Berjaya disimpan!' }, { status: 200 });
+    return NextResponse.json({ success: true, message: 'Berjaya disimpan sepenuhnya!' }, { status: 200 });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Ralat server.' }, { status: 500 });
   }
