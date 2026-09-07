@@ -197,7 +197,7 @@ export default function QueueSettingsPage() {
     }
   };
 
-  // Auto-promise: Setiap kali tambah row baharu, semua hari akan auto-tick
+  // Auto-promise: Setiap kali tambah row baharu, semua hari auto-tick
   const addRow = () => {
     const allDays = DAYS.map(d => d.index);
     setRows([...rows, { time: '12:00', days: allDays }]);
