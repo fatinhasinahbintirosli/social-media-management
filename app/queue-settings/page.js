@@ -34,6 +34,15 @@ export default function QueueSettingsPage() {
     );
   }, []);
 
+  // Fungsi helper untuk menyusun masa secara kronologi (pagi ke malam)
+  const sortRowsByTime = (slotRows) => {
+    return [...slotRows].sort((a, b) => {
+      const [hA, mA] = (a.time || '00:00').split(':').map(Number);
+      const [hB, mB] = (b.time || '00:00').split(':').map(Number);
+      return (hA * 60 + mA) - (hB * 60 + mB);
+    });
+  };
+
   useEffect(() => {
     async function initData() {
       setLoading(true);
@@ -98,7 +107,7 @@ export default function QueueSettingsPage() {
       const formattedGroups = (data || []).map((item, idx) => ({
         id: item.id || idx + 1,
         pageIds: item.page_ids || [],
-        rows: item.time_slots || [],
+        rows: sortRowsByTime(item.time_slots || []), // Susun masa sejurus dimuat turun
         isOpen: false
       }));
 
@@ -125,7 +134,7 @@ export default function QueueSettingsPage() {
 
   const handleStartEdit = (group) => {
     setSelectedPages(group.pageIds);
-    setRows(JSON.parse(JSON.stringify(group.rows)));
+    setRows(sortRowsByTime(JSON.parse(JSON.stringify(group.rows)))); // Susun masa apabila mula edit
     setEditingGroupId(group.id);
     setIsEditing(true);
   };
@@ -152,7 +161,7 @@ export default function QueueSettingsPage() {
 
   const addRow = () => {
     const allDays = DAYS.map(d => d.index);
-    setRows([...rows, { time: '12:00', days: allDays }]);
+    setRows(sortRowsByTime([...rows, { time: '12:00', days: allDays }]));
   };
 
   const removeRow = (index) => {
@@ -162,7 +171,7 @@ export default function QueueSettingsPage() {
   const updateTime = (index, newTime) => {
     const updated = [...rows];
     updated[index].time = newTime;
-    setRows(updated);
+    setRows(sortRowsByTime(updated)); // Susun semula serta-merta apabila masa diubah
   };
 
   const toggleDay = (rowIndex, dayIndex) => {
@@ -184,8 +193,8 @@ export default function QueueSettingsPage() {
 
     setLoading(true);
     try {
-      // Susun waktu secara automatik dari yang paling awal (pagi) ke yang paling lewat (malam)
-      const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
+      // Susun mengikut kronologi masa yang tepat (pagi ke malam)
+      const sortedRows = sortRowsByTime(rows);
 
       const res = await fetch('/api/queue-settings', {
         method: 'POST',
@@ -201,7 +210,7 @@ export default function QueueSettingsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal menyimpan tetapan.');
 
-      alert('Tetapan Timeslot berjaya disimpan dan disusun rapi!');
+      alert('Tetapan Timeslot berjaya disimpan dan disusun mengikut masa!');
       setIsEditing(false);
       window.location.reload();
     } catch (err) {
