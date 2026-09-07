@@ -20,24 +20,22 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Data tidak lengkap.' }, { status: 400 });
     }
 
-    // Susun baris masa secara menaik
     const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-    // Proses setiap page secara bersiri (sequential loop) untuk mengelakkan timeout
-    for (const pageId of selectedPages) {
-      // 1. Padam rekod lama bagi page ini
-      await supabase
-        .from('queue_settings')
-        .delete()
-        .eq('profile', profile)
-        .eq('user_id', userId)
-        .eq('page_id', pageId);
+    // Padam rekod lama untuk semua page yang terlibat secara serentak
+    await supabase
+      .from('queue_settings')
+      .delete()
+      .eq('profile', profile)
+      .eq('user_id', userId)
+      .in('page_id', selectedPages);
 
-      // 2. Sediakan data timeslot untuk page ini
-      const pageInsertData = [];
+    // Kumpul semua data untuk dimasukkan
+    const allInsertData = [];
+    selectedPages.forEach(pageId => {
       sortedRows.forEach(row => {
         row.days.forEach(day => {
-          pageInsertData.push({
+          allInsertData.push({
             day_of_week: day,
             time_slot: `${row.time}:00`,
             is_active: true,
@@ -47,21 +45,19 @@ export async function POST(request) {
           });
         });
       });
+    });
 
-      // 3. Masukkan secara berperingkat (batch 50 rekod setiap hantaran untuk page tersebut)
-      if (pageInsertData.length > 0) {
-        const batchSize = 50;
-        for (let i = 0; i < pageInsertData.length; i += batchSize) {
-          const batch = pageInsertData.slice(i, i + batchSize);
-          const { error: insertError } = await supabase.from('queue_settings').insert(batch);
-          if (insertError) {
-            return NextResponse.json({ error: insertError.message }, { status: 500 });
-          }
-        }
+    // Masukkan dalam kelompok 200 rekod untuk elak had saiz
+    const batchSize = 200;
+    for (let i = 0; i < allInsertData.length; i += batchSize) {
+      const batch = allInsertData.slice(i, i + batchSize);
+      const { error: insertError } = await supabase.from('queue_settings').insert(batch);
+      if (insertError) {
+        return NextResponse.json({ error: insertError.message }, { status: 500 });
       }
     }
 
-    return NextResponse.json({ success: true, message: 'Berjaya disimpan untuk semua page!' }, { status: 200 });
+    return NextResponse.json({ success: true, message: 'Berjaya disimpan!' }, { status: 200 });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Ralat server.' }, { status: 500 });
   }
