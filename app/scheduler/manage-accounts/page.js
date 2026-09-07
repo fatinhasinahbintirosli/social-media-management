@@ -21,10 +21,10 @@ export default function ManageAccountsPage() {
 
   async function fetchPages() {
     setFetching(true);
-    // Tambah picture_url untuk membolehkan paparan gambar profil (DP)
+    // Ambil data page berserta maklumat admin
     const { data, error } = await supabase
       .from('pages')
-      .select('page_id, page_name, picture_url')
+      .select('page_id, page_name, picture_url, admin_name, admin_picture_url')
       .order('page_name', { ascending: true });
 
     if (error) {
@@ -77,7 +77,7 @@ export default function ManageAccountsPage() {
   };
 
   return (
-    <main style={{ maxWidth: '800px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
+    <main style={{ maxWidth: '850px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       
       {/* Navigasi Atas */}
       <div style={{ marginBottom: '20px' }}>
@@ -109,28 +109,53 @@ export default function ManageAccountsPage() {
               </button>
             </div>
 
-            <div style={{ maxHeight: '350px', overflowY: 'auto', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ maxHeight: '400px', overflowY: 'auto', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {pages.map(p => (
                 <label 
                   key={p.page_id} 
-                  style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', background: pagesToDelete.includes(p.page_id) ? '#fff5f5' : '#f8f9fa', borderRadius: '6px', border: '1px solid', borderColor: pagesToDelete.includes(p.page_id) ? '#f5c6cb' : '#e9ecef', cursor: 'pointer' }}
+                  style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '12px', 
+                    padding: '12px', 
+                    background: pagesToDelete.includes(p.page_id) ? '#fff5f5' : '#f8f9fa', 
+                    borderRadius: '8px', 
+                    border: '1px solid', 
+                    borderColor: pagesToDelete.includes(p.page_id) ? '#f5c6cb' : '#e9ecef', 
+                    cursor: 'pointer' 
+                  }}
                 >
                   <input 
                     type="checkbox" 
                     checked={pagesToDelete.includes(p.page_id)} 
                     onChange={() => handleToggle(p.page_id)} 
-                    style={{ width: '16px', height: '16px', accentColor: '#dc3545' }}
+                    style={{ width: '16px', height: '16px', accentColor: '#dc3545', flexShrink: 0 }}
                   />
                   
-                  {/* Paparan Gambar Profil (DP) Page */}
+                  {/* DP Page */}
                   <img 
                     src={p.picture_url || 'https://via.placeholder.com/35'} 
                     alt={p.page_name} 
-                    style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover', border: '1px solid #ddd' }}
+                    style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', border: '1px solid #ddd', flexShrink: 0 }}
                   />
 
-                  <span style={{ fontSize: '14px', fontWeight: '500', color: '#333' }}>{p.page_name}</span>
-                  <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#888' }}>ID: {p.page_id}</span>
+                  {/* Nama Page */}
+                  <div style={{ display: 'flex', flexDirection: 'column', minWidth: '180px' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#222' }}>{p.page_name}</span>
+                    <span style={{ fontSize: '11px', color: '#888' }}>ID: {p.page_id}</span>
+                  </div>
+
+                  {/* Maklumat Admin (DP & Nama) */}
+                  {p.admin_name && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto', background: '#e9ecef', padding: '4px 10px', borderRadius: '20px' }}>
+                      <img 
+                        src={p.admin_picture_url || 'https://via.placeholder.com/24'} 
+                        alt={p.admin_name} 
+                        style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }}
+                      />
+                      <span style={{ fontSize: '12px', color: '#495057', fontWeight: '500' }}>{p.admin_name}</span>
+                    </div>
+                  )}
                 </label>
               ))}
             </div>
