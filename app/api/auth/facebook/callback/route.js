@@ -33,7 +33,15 @@ export async function GET(request) {
 
     const userAccessToken = tokenData.access_token;
 
-    // Tarik senarai pages beserta gambar profil (picture) dari Graph API
+    // 1. Ambil maklumat profil Admin yang log masuk (Nama & DP)
+    const adminUrl = `https://graph.facebook.com/v19.0/me?fields=id,name,picture.type(normal)&access_token=${userAccessToken}`;
+    const adminRes = await fetch(adminUrl);
+    const adminData = await adminRes.json();
+
+    const adminName = adminData.name || 'Admin Facebook';
+    const adminPictureUrl = adminData.picture?.data?.url || '';
+
+    // 2. Ambil senarai Facebook Pages beserta gambar profil Page
     const pagesUrl = `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,picture&access_token=${userAccessToken}&limit=100`;
     const pagesRes = await fetch(pagesUrl);
     const pagesData = await pagesRes.json();
@@ -58,7 +66,7 @@ export async function GET(request) {
       userId = existingPages[0].user_id;
     }
 
-    // Simpan senarai page berserta URL gambar profil
+    // 3. Simpan Page berserta maklumat admin ke dalam Supabase
     for (const page of pages) {
       const picUrl = page.picture?.data?.url || '';
       
@@ -69,7 +77,9 @@ export async function GET(request) {
           page_id: page.id,
           page_name: page.name,
           access_token: page.access_token,
-          picture_url: picUrl, // Simpan URL DP Page
+          picture_url: picUrl,
+          admin_name: adminName,
+          admin_picture_url: adminPictureUrl,
           is_active: true,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'page_id' });
