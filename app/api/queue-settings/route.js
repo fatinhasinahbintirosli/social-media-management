@@ -22,9 +22,9 @@ export async function POST(request) {
 
     const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
 
-    // Proses setiap page secara SATU PERSATU untuk mengelakkan muatan berlebihan (payload overload)
+    // Proses simpanan SATU PERSATU Page secara bersiri dengan selamat
     for (const pageId of selectedPages) {
-      // 1. Padam rekod lama untuk page ini
+      // 1. Padam rekod lama page ini
       await supabase
         .from('queue_settings')
         .delete()
@@ -32,7 +32,7 @@ export async function POST(request) {
         .eq('user_id', userId)
         .eq('page_id', pageId);
 
-      // 2. Bina senarai data untuk page ini
+      // 2. Sediakan data
       const pageInsertData = [];
       sortedRows.forEach(row => {
         row.days.forEach(day => {
@@ -47,9 +47,9 @@ export async function POST(request) {
         });
       });
 
-      // 3. Masukkan secara kelompok kecil (batch 100 rekod) bagi setiap page
+      // 3. Masukkan secara kelompok kecil (batch 30 rekod) untuk setiap page
       if (pageInsertData.length > 0) {
-        const batchSize = 100;
+        const batchSize = 30;
         for (let i = 0; i < pageInsertData.length; i += batchSize) {
           const batch = pageInsertData.slice(i, i + batchSize);
           const { error: insertError } = await supabase.from('queue_settings').insert(batch);
@@ -60,7 +60,7 @@ export async function POST(request) {
       }
     }
 
-    return NextResponse.json({ success: true, message: 'Berjaya disimpan untuk kesemua page!' }, { status: 200 });
+    return NextResponse.json({ success: true, message: 'Berjaya disimpan!' }, { status: 200 });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Ralat server.' }, { status: 500 });
   }
