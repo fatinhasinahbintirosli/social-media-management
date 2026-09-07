@@ -21,9 +21,10 @@ export default function ManageAccountsPage() {
 
   async function fetchPages() {
     setFetching(true);
+    // Tambah picture_url untuk membolehkan paparan gambar profil (DP)
     const { data, error } = await supabase
       .from('pages')
-      .select('page_id, page_name')
+      .select('page_id, page_name, picture_url')
       .order('page_name', { ascending: true });
 
     if (error) {
@@ -112,7 +113,7 @@ export default function ManageAccountsPage() {
               {pages.map(p => (
                 <label 
                   key={p.page_id} 
-                  style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: pagesToDelete.includes(p.page_id) ? '#fff5f5' : '#f8f9fa', borderRadius: '6px', border: '1px solid', borderColor: pagesToDelete.includes(p.page_id) ? '#f5c6cb' : '#e9ecef', cursor: 'pointer' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', background: pagesToDelete.includes(p.page_id) ? '#fff5f5' : '#f8f9fa', borderRadius: '6px', border: '1px solid', borderColor: pagesToDelete.includes(p.page_id) ? '#f5c6cb' : '#e9ecef', cursor: 'pointer' }}
                 >
                   <input 
                     type="checkbox" 
@@ -120,6 +121,14 @@ export default function ManageAccountsPage() {
                     onChange={() => handleToggle(p.page_id)} 
                     style={{ width: '16px', height: '16px', accentColor: '#dc3545' }}
                   />
+                  
+                  {/* Paparan Gambar Profil (DP) Page */}
+                  <img 
+                    src={p.picture_url || 'https://via.placeholder.com/35'} 
+                    alt={p.page_name} 
+                    style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover', border: '1px solid #ddd' }}
+                  />
+
                   <span style={{ fontSize: '14px', fontWeight: '500', color: '#333' }}>{p.page_name}</span>
                   <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#888' }}>ID: {p.page_id}</span>
                 </label>
