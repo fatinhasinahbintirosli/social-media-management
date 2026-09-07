@@ -32,7 +32,6 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Sesi pengguna tidak sah (User ID tiada).' }, { status: 400 });
     }
 
-    // Senarai untuk menampung semua rekod yang hendak dimasukkan ke Supabase
     let recordsToInsert = [];
 
     // Kes 1: Jadual Manual (Array pelbagai masa)
@@ -68,7 +67,7 @@ export async function POST(request) {
 
       if (scheduledAt) {
         if (scheduledAt === 'auto-queue') {
-          // Ambil pos 'pending' terakhir
+          // 1. Ambil pos 'pending' terakhir untuk user & profil ini
           const { data: lastPosts } = await supabase
             .from('scheduled_posts')
             .select('scheduled_at')
@@ -78,11 +77,12 @@ export async function POST(request) {
             .order('scheduled_at', { ascending: false })
             .limit(1);
 
+          // 2. Ambil tetapan queue model Template Grouping (JSON)
           const { data: queueSettings } = await supabase
             .from('queue_settings')
             .select('*')
-            .eq('is_active', true)
-            .eq('profile', activeProfile);
+            .eq('profile', activeProfile)
+            .eq('user_id', userId);
 
           const nowUTC = new Date();
           const localTimeStr = nowUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
@@ -95,68 +95,66 @@ export async function POST(request) {
             const lastDate = new Date(lastLocalStr);
             if (!isNaN(lastDate.getTime()) && lastDate > baseDate) {
               baseDate = lastDate;
+              // Tambah 30 minit dari pos terakhir supaya pos seterusnya jatuh pada slot berikutnya
+              baseDate.setMinutes(baseDate.getMinutes() + 30);
             }
           }
 
-          let nextSlotTimeStr = null;
-
-          if (queueSettings && queueSettings.length > 0) {
-            const parseTimeToMinutes = (timeStr) => {
-              if (!timeStr) return 0;
-              if (timeStr.includes('M')) {
-                const [timePart, modifier] = timeStr.split(' ');
-                let [hours, minutes] = timePart.split(':').map(Number);
-                if (modifier === 'PM' && hours < 12) hours += 12;
-                if (modifier === 'AM' && hours === 12) hours = 0;
-                return hours * 60 + minutes;
-              }
-              const parts = timeStr.split(':').map(Number);
-              return parts[0] * 60 + (parts[1] || 0);
-            };
-
-            let currentDayOfWeek = baseDate.getDay();
-            let baseMinutes = baseDate.getHours() * 60 + baseDate.getMinutes();
-
-            let todaySlots = queueSettings
-              .filter((q) => q.day_of_week === currentDayOfWeek)
-              .map((q) => ({ ...q, totalMinutes: parseTimeToMinutes(q.time_slot) }))
-              .sort((a, b) => a.totalMinutes - b.totalMinutes);
-
-            let candidate = todaySlots.find((q) => q.totalMinutes > baseMinutes);
-
-            if (!candidate) {
-              baseDate.setDate(baseDate.getDate() + 1);
-              baseDate.setHours(0, 0, 0, 0);
-              const nextDayOfWeek = baseDate.getDay();
-              
-              const tomorrowSlots = queueSettings
-                .filter((q) => q.day_of_week === nextDayOfWeek)
-                .map((q) => ({ ...q, totalMinutes: parseTimeToMinutes(q.time_slot) }))
-                .sort((a, b) => a.totalMinutes - b.totalMinutes);
-
-              candidate = tomorrowSlots[0] || queueSettings[0];
-            }
-
-            if (candidate && candidate.time_slot) {
-              nextSlotTimeStr = candidate.time_slot;
-            }
-          }
-
-          let targetHours = 15;
+          let targetHours = 6; // Default fallback pukul 6:00 pagi
           let targetMinutes = 0;
 
-          if (nextSlotTimeStr) {
-            if (nextSlotTimeStr.includes('M')) {
-              const [timePart, modifier] = nextSlotTimeStr.split(' ');
-              let [hours, minutes] = timePart.split(':').map(Number);
-              if (modifier === 'PM' && hours < 12) hours += 12;
-              if (modifier === 'AM' && hours === 12) hours = 0;
-              targetHours = hours;
-              targetMinutes = minutes;
-            } else {
-              const [hours, minutes] = nextSlotTimeStr.split(':').map(Number);
-              targetHours = hours;
-              targetMinutes = minutes || 0;
+          if (queueSettings && queueSettings.length > 0) {
+            // Kumpul semua slot masa daripada semua tatarajah kumpulan
+            let allSlots = [];
+            queueSettings.forEach(setting => {
+              if (Array.isArray(setting.time_slots)) {
+                setting.time_slots.forEach(slot => {
+                  // slot mempunyai { time: "06:00", days: [1,2,3,4,5,6,0] }
+                  if (slot && slot.time && Array.isArray(slot.days)) {
+                    slot.days.forEach(dayIdx => {
+                      allSlots.push({ day: dayIdx, time: slot.time });
+                    });
+                  }
+                });
+              }
+            });
+
+            if (allSlots.length > 0) {
+              const parseToMinutes = (t) => {
+                const [h, m] = t.split(':').map(Number);
+                return h * 60 + (m || 0);
+              };
+
+              let currentDayOfWeek = baseDate.getDay();
+              let baseMinutes = baseDate.getHours() * 60 + baseDate.getMinutes();
+
+              // Cari slot pada hari yang sama yang lebih lewat daripada baseMinutes
+              let todaySlots = allSlots
+                .filter(s => s.day === currentDayOfWeek)
+                .map(s => ({ ...s, totalMin: parseToMinutes(s.time) }))
+                .sort((a, b) => a.totalMin - b.totalMin);
+
+              let foundSlot = todaySlots.find(s => s.totalMin >= baseMinutes);
+
+              // Jika tiada slot berbaki hari ini, ambil slot paling awal untuk hari esok
+              if (!foundSlot) {
+                baseDate.setDate(baseDate.getDate() + 1);
+                baseDate.setHours(0, 0, 0, 0);
+                const nextDayOfWeek = baseDate.getDay();
+
+                let tomorrowSlots = allSlots
+                  .filter(s => s.day === nextDayOfWeek)
+                  .map(s => ({ ...s, totalMin: parseToMinutes(s.time) }))
+                  .sort((a, b) => a.totalMin - b.totalMin);
+
+                foundSlot = tomorrowSlots[0] || allSlots[0];
+              }
+
+              if (foundSlot && foundSlot.time) {
+                const [h, m] = foundSlot.time.split(':').map(Number);
+                targetHours = h;
+                targetMinutes = m || 0;
+              }
             }
           }
 
@@ -212,7 +210,7 @@ export async function POST(request) {
 export async function DELETE(request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json({ error: 'Kunci Supabase belum ditetapkan.' }, { status: 500 });
