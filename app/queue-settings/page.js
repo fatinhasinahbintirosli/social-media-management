@@ -111,9 +111,9 @@ export default function QueueSettingsPage() {
       const groupMap = {};
       Object.keys(pageToSlots).forEach(pageId => {
         const slots = pageToSlots[pageId];
-        // Susun slot secara konsisten supaya tandatangan seiras dikesan dengan tepat
-        const sortedSlots = [...slots].sort((a, b) => a.time.localeCompare(b.time) || a.day - b.day);
-        const signature = JSON.stringify(sortedSlots);
+        // Susun dengan tepat untuk elak perbezaan susunan array
+        const sortedSlots = slots.sort((a, b) => a.time.localeCompare(b.time) || a.day - b.day);
+        const signature = sortedSlots.map(s => `${s.time}-${s.day}`).join('|');
         
         if (!groupMap[signature]) {
           groupMap[signature] = {
@@ -263,14 +263,13 @@ export default function QueueSettingsPage() {
     if (!confirm('Adakah anda pasti mahu memadam timeslots untuk page ini?')) return;
     setLoading(true);
     try {
-      for (const pId of group.pageIds) {
-        await supabase
-          .from('queue_settings')
-          .delete()
-          .eq('profile', currentProfile)
-          .eq('user_id', userId)
-          .eq('page_id', pId);
-      }
+      await supabase
+        .from('queue_settings')
+        .delete()
+        .eq('profile', currentProfile)
+        .eq('user_id', userId)
+        .in('page_id', group.pageIds);
+
       setSlotGroups(slotGroups.filter(g => g.id !== group.id));
       alert('Berjaya dipadam!');
       window.location.reload();
