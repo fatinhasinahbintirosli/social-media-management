@@ -18,7 +18,6 @@ export default function SchedulerPage() {
   // Baca terus dari localStorage semasa muat turun awal
   const [selectedPages, setSelectedPages] = useState(() => {
     if (typeof window !== 'undefined') {
-      // Semak semua kunci localStorage yang bermula dengan format tersebut jika ada
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key && key.startsWith('fb_scheduler_selected_pages_')) {
@@ -75,7 +74,6 @@ export default function SchedulerPage() {
     const loadedPages = pData || [];
     setPages(loadedPages);
 
-    // Muat turun pilihan pages khusus untuk user ini dari localStorage
     const storageKey = `fb_scheduler_selected_pages_${userId}`;
     const savedSelectedPages = localStorage.getItem(storageKey);
     
@@ -84,11 +82,8 @@ export default function SchedulerPage() {
         const parsedIds = JSON.parse(savedSelectedPages);
         const validIds = parsedIds.filter(id => loadedPages.some(p => p.page_id === id));
         setSelectedPages(validIds);
-      } catch (e) {
-        // Kekalkan pilihan sedia ada jika gagal parse
-      }
+      } catch (e) {}
     } else if (selectedPages.length === 0 && loadedPages.length > 0) {
-      // Jika tiada rekod langsung dalam storage, auto-tick semua buat kali pertama
       const allIds = loadedPages.map(p => p.page_id);
       setSelectedPages(allIds);
       localStorage.setItem(storageKey, JSON.stringify(allIds));
@@ -166,7 +161,6 @@ export default function SchedulerPage() {
     return () => subscription.unsubscribe();
   }, [supabase]);
 
-  // Simpan pilihan pages ke localStorage hanya apabila user sudah dikenal pasti dan senarai pages sudah wujud
   useEffect(() => {
     if (currentUserId && pages.length > 0) {
       const storageKey = `fb_scheduler_selected_pages_${currentUserId}`;
@@ -394,7 +388,8 @@ export default function SchedulerPage() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      alert(data.message || 'Berjaya!');
+
+      // Notifikasi alert telah dibuang sepenuhnya di sini
       
       setMessage(''); 
       setImageUrl(''); 
@@ -563,7 +558,6 @@ export default function SchedulerPage() {
             <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Tulis kapsyen pos anda..." style={{ width: '100%', height: '90px', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
           </div>
 
-          {/* Kotak Muat Naik Utama dengan Drag and Drop */}
           <div style={{ marginBottom: '15px' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Upload Gambar / Video Utama (Pilihan):</label>
             
@@ -614,7 +608,6 @@ export default function SchedulerPage() {
             <textarea value={firstComment} onChange={e => setFirstComment(e.target.value)} placeholder="Tulis komen pertama (pilihan)..." style={{ width: '100%', height: '60px', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
           </div>
 
-          {/* Kotak Muat Naik Komen Pertama dengan Drag and Drop (Saiz Kecil) */}
           <div style={{ marginBottom: '20px' }}>
             <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Gambar untuk First Comment (Pilihan):</label>
             
@@ -668,7 +661,6 @@ export default function SchedulerPage() {
             </label>
           </div>
 
-          {/* Bahagian Pelbagai Tarikh & Masa untuk Jadual Manual */}
           {postMode === 'manual' && (
             <div style={{ marginBottom: '20px', background: '#fff', padding: '15px', borderRadius: '8px', border: '1px solid #ccc' }}>
               <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '10px' }}>Pilih Tarikh & Masa:</label>
