@@ -82,13 +82,14 @@ export default function QueuePage() {
           .eq('user_id', currentUserId)
           .order('page_name', { ascending: true });
 
-        // Ambil scheduled_posts mengikut profil aktif DAN user_id yang sah berserta susunan masa cipta
+        // Ambil scheduled_posts yang berstatus 'pending' sahaja mengikut profil aktif & user_id
         const { data: sData } = await supabase
           .from('scheduled_posts')
           .select('*')
           .ilike('profile', activeProfile)
           .eq('user_id', currentUserId)
-          .order('created_at', { ascending: false });
+          .eq('status', 'pending') // Hanya paparkan pos yang menunggu giliran
+          .order('scheduled_at', { ascending: true }); // Susun ikut masa terdekat di atas
         
         setPages(pData || []);
         setScheduledPosts(sData || []);
@@ -113,14 +114,24 @@ export default function QueuePage() {
         (payload) => {
           setScheduledPosts((prevItems) => {
             if (payload.eventType === 'UPDATE') {
-              // Kemaskini item yang berubah status atau maklumatnya
+              // Jika status berubah bukan 'pending' (cth: published), buang dari senarai queue
+              if (payload.new.status && payload.new.status !== 'pending') {
+                return prevItems.filter((item) => item.id !== payload.new.id);
+              }
+              // Jika masih pending atau dikemaskini, kemaskini datanya
               return prevItems.map((item) =>
                 item.id === payload.new.id ? payload.new : item
               );
             } else if (payload.eventType === 'INSERT') {
-              // Masukkan item baru ke dalam senarai jika profil sepadan
-              if (payload.new.profile && payload.new.profile.toLowerCase() === activeProfile.toLowerCase()) {
-                return [payload.new, ...prevItems];
+              // Masukkan item baru ke dalam senarai jika profil sepadan dan status 'pending'
+              if (
+                payload.new.profile && 
+                payload.new.profile.toLowerCase() === activeProfile.toLowerCase() &&
+                payload.new.status === 'pending'
+              ) {
+                // Masukkan dan susun semula mengikut masa terdekat
+                const updated = [payload.new, ...prevItems];
+                return updated.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
               }
             } else if (payload.eventType === 'DELETE') {
               // Buang item yang dipadam
@@ -262,7 +273,7 @@ export default function QueuePage() {
               {loading ? (
                 <tr><td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#777' }}>Memuatkan senarai pos...</td></tr>
               ) : filteredPosts.length === 0 ? (
-                <tr><td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#777' }}>Tiada rekod pos untuk profil & pilihan ini.</td></tr>
+                <tr><td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#777' }}>Tiada pos yang menunggu giliran (pending) untuk profil ini.</td></tr>
               ) : (
                 filteredPosts.map(p => {
                   const mediaUrl = p.image_url || p.video_url;
@@ -296,30 +307,27 @@ export default function QueuePage() {
                       <td style={{ padding: '12px' }}>
                         <span style={{ 
                           padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold',
-                          backgroundColor: p.status === 'published' ? '#d4edda' : '#fff3cd',
-                          color: p.status === 'published' ? '#155724' : '#856404'
+                          backgroundColor: '#fff3cd', color: '#856404'
                         }}>
-                          {p.status ? p.status.toUpperCase() : 'PENDING'}
+                          PENDING
                         </span>
                       </td>
                       <td style={{ padding: '12px', textAlign: 'center' }}>
-                        {p.status === 'pending' && (
-                          <button
-                            onClick={() => handleDeleteQueue(p.id)}
-                            style={{
-                              background: '#dc3545',
-                              color: '#fff',
-                              border: 'none',
-                              padding: '6px 12px',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              fontSize: '12px',
-                              fontWeight: 'bold'
-                            }}
-                          >
-                            Padam
-                          </button>
-                        )}
+                        <button
+                          onClick={() => handleDeleteQueue(p.id)}
+                          style={{
+                            background: '#dc3545',
+                            color: '#fff',
+                            border: 'none',
+                            padding: '6px 12px',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          Padam
+                        </button>
                       </td>
                     </tr>
                   );
