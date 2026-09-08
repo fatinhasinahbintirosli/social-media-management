@@ -67,7 +67,7 @@ export async function POST(request) {
 
       if (scheduledAt) {
         if (scheduledAt === 'auto-queue') {
-          // 1. Ambil SEMUA pos 'pending' yang akan datang untuk user & profil ini, disusun secara menaik (ascending)
+          // 1. Ambil SEMUA pos 'pending' yang akan datang untuk user & profil ini
           const { data: pendingPosts } = await supabase
             .from('scheduled_posts')
             .select('scheduled_at')
@@ -110,9 +110,7 @@ export async function POST(request) {
 
           let foundSlotDate = null;
 
-          // Semak sama ada terdapat slot yang diletakkan dalam masa hadapan (bermula dari masa sekarang)
           if (allSlots.length > 0) {
-            // Kita semak untuk beberapa hari ke hadapan (maksimum 7 hari) untuk mencari slot kosong pertama
             let checkDate = new Date(baseDate);
             
             for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
@@ -120,7 +118,6 @@ export async function POST(request) {
               let isToday = (dayOffset === 0);
               let baseMinutes = isToday ? (baseDate.getHours() * 60 + baseDate.getMinutes()) : 0;
 
-              // Ambil semua slot pada hari tersebut dan susun ikut masa pagi ke malam
               let daySlots = allSlots
                 .filter(s => s.day === currentDayOfWeek)
                 .map(s => ({ ...s, totalMin: parseToMinutes(s.time) }))
@@ -130,22 +127,30 @@ export async function POST(request) {
                 // Abaikan slot yang sudah lepas untuk hari ini
                 if (isToday && slot.totalMin <= baseMinutes) continue;
 
-                // Bina tarikh & masa penuh untuk slot ini
                 let candidateDate = new Date(checkDate);
                 const [h, m] = slot.time.split(':').map(Number);
                 candidateDate.setHours(h, m || 0, 0, 0);
 
-                // Semak sama ada slot ini sudah diambil oleh pos 'pending' yang lain
+                // Semak sama ada slot ini sudah diambil (bertindih tepat pada tarikh & jam yang sama)
                 let isOccupied = false;
                 if (pendingPosts && pendingPosts.length > 0) {
                   isOccupied = pendingPosts.some(post => {
-                    const postDate = new Date(post.scheduled_at);
-                    // Bandingkan beza masa dalam minit (jika kurang daripada 5 minit, anggap slot sudah bertindih/diambil)
-                    return Math.abs(postDate.getTime() - candidateDate.getTime()) < 5 * 60 * 1000;
+                    const postDateUTC = new Date(post.scheduled_at);
+                    const postLocalStr = postDateUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
+                    const postDate = new Date(postLocalStr);
+                    
+                    // Bandingkan tahun, bulan, hari, jam, dan minit
+                    return (
+                      postDate.getFullYear() === candidateDate.getFullYear() &&
+                      postDate.getMonth() === candidateDate.getMonth() &&
+                      postDate.getDate() === candidateDate.getDate() &&
+                      postDate.getHours() === candidateDate.getHours() &&
+                      postDate.getMinutes() === candidateDate.getMinutes()
+                    );
                   });
                 }
 
-                // Jika slot ini KOSONG (tiada pos mendudukinya), pilih slot ini!
+                // Jika slot ini benar-benar kosong (tiada pos pada tarikh & masa tersebut), pilih!
                 if (!isOccupied) {
                   foundSlotDate = candidateDate;
                   break;
@@ -154,13 +159,12 @@ export async function POST(request) {
 
               if (foundSlotDate) break;
 
-              // Jika tiada slot kosong pada hari ini, beralih ke hari esok
               checkDate.setDate(checkDate.getDate() + 1);
               checkDate.setHours(0, 0, 0, 0);
             }
           }
 
-          // Jika tiada slot kosong dijumpai melalui templat, guna kaedah fallback pos terakhir atau masa sekarang
+          // Fallback jika tiada slot kosong dijumpai
           if (!foundSlotDate) {
             if (pendingPosts && pendingPosts.length > 0) {
               const lastPostDate = new Date(pendingPosts[pendingPosts.length - 1].scheduled_at);
