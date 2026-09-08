@@ -19,11 +19,16 @@ export default function QueuePage() {
   const [selectedPageId, setSelectedPageId] = useState('all');
   const [loading, setLoading] = useState(true);
 
-  // State untuk fungsi Edit Modal / Inline
+  // State untuk fungsi Edit Penuh
   const [editingPost, setEditingPost] = useState(null);
   const [editMessage, setEditMessage] = useState('');
   const [editScheduledAt, setEditScheduledAt] = useState('');
+  const [editImageUrl, setEditImageUrl] = useState('');
+  const [editFirstComment, setEditFirstComment] = useState('');
+  const [editCommentImageUrl, setEditCommentImageUrl] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [uploadingCommentMedia, setUploadingCommentMedia] = useState(false);
 
   const supabase = useMemo(() => {
     return createClient(
@@ -160,7 +165,10 @@ export default function QueuePage() {
   const handleStartEdit = (post) => {
     setEditingPost(post);
     setEditMessage(post.message || '');
-    // Format tarikh untuk input datetime-local (YYYY-MM-DDTHH:mm)
+    setEditImageUrl(post.image_url || post.video_url || '');
+    setEditFirstComment(post.first_comment || '');
+    setEditCommentImageUrl(post.comment_image_url || '');
+
     if (post.scheduled_at) {
       const d = new Date(post.scheduled_at);
       const year = d.getFullYear();
@@ -174,6 +182,28 @@ export default function QueuePage() {
     }
   };
 
+  const uploadFileToSupabase = async (file, setUrlFunc, setLoadingFunc) => {
+    if (!file) return;
+    setLoadingFunc(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+      
+      const { error } = await supabase.storage
+        .from('post-media')
+        .upload(fileName, file);
+
+      if (error) throw error;
+
+      const { data: publicUrlData } = supabase.storage.from('post-media').getPublicUrl(fileName);
+      setUrlFunc(publicUrlData.publicUrl);
+    } catch (err) {
+      alert(`Gagal muat naik fail: ${err.message}`);
+    } finally {
+      setLoadingFunc(false);
+    }
+  };
+
   const handleSaveEdit = async (e) => {
     e.preventDefault();
     if (!editingPost) return;
@@ -184,20 +214,36 @@ export default function QueuePage() {
         ? editScheduledAt 
         : `${editScheduledAt}:00+08:00`;
 
+      let finalImg = editImageUrl || null;
+      let finalVid = null;
+
+      if (finalImg) {
+        const lower = finalImg.toLowerCase();
+        if (lower.endsWith('.mp4') || lower.includes('video') || lower.includes('.mov') || lower.includes('.webm')) {
+          finalVid = finalImg;
+          finalImg = null;
+        }
+      }
+
+      const updatePayload = {
+        message: editMessage,
+        image_url: finalImg,
+        video_url: finalVid,
+        first_comment: editFirstComment || null,
+        comment_image_url: editCommentImageUrl || null,
+        scheduled_at: new Date(formattedDate).toISOString()
+      };
+
       const { error } = await supabase
         .from('scheduled_posts')
-        .update({
-          message: editMessage,
-          scheduled_at: new Date(formattedDate).toISOString()
-        })
+        .update(updatePayload)
         .eq('id', editingPost.id);
 
       if (error) throw error;
 
-      // Kemaskini state tempatan
       setScheduledPosts(prev => prev.map(p => {
         if (p.id === editingPost.id) {
-          return { ...p, message: editMessage, scheduled_at: new Date(formattedDate).toISOString() };
+          return { ...p, ...updatePayload };
         }
         return p;
       }).sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at)));
@@ -298,19 +344,13 @@ export default function QueuePage() {
         </select>
       </div>
 
-      {/* Modal / Kotak Sunting (Edit) Pos */}
+      {/* Borang Edit Penuh (Modal / Kotak Sunting) */}
       {editingPost && (
-        <div style={{ background: '#18191a', color: '#fff', padding: '20px', borderRadius: '10px', border: '1px solid #3a3b3c', marginBottom: '25px', boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
-          <h3 style={{ margin: '0 0 15px 0', color: '#1877f2' }}>✏️ Edit Pos Queue</h3>
+        <div style={{ background: '#18191a', color: '#fff', padding: '25px', borderRadius: '10px', border: '1px solid #3a3b3c', marginBottom: '25px', boxShadow: '0 4px 15px rgba(0,0,0,0.4)' }}>
+          <h3 style={{ margin: '0 0 15px 0', color: '#1877f2' }}>✏️ Edit Pos Queue Penuh</h3>
           <form onSubmit={handleSaveEdit}>
-            <div style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px' }}>Mesej / Kapsyen:</label>
-              <textarea 
-                value={editMessage} 
-                onChange={(e) => setEditMessage(e.target.value)} 
-                style={{ width: '100%', height: '80px', padding: '8px', borderRadius: '6px', border: '1px solid #3a3b3c', background: '#242526', color: '#fff', boxSizing: 'border-box' }}
-              />
-            </div>
+            
+            {/* Masa Jadual */}
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px' }}>Masa Jadual:</label>
               <input 
@@ -320,18 +360,78 @@ export default function QueuePage() {
                 style={{ padding: '8px', borderRadius: '6px', border: '1px solid #3a3b3c', background: '#242526', color: '#fff' }}
               />
             </div>
+
+            {/* Kapsyen Utama */}
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px' }}>Mesej / Kapsyen:</label>
+              <textarea 
+                value={editMessage} 
+                onChange={(e) => setEditMessage(e.target.value)} 
+                style={{ width: '100%', height: '80px', padding: '8px', borderRadius: '6px', border: '1px solid #3a3b3c', background: '#242526', color: '#fff', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {/* Tukar Media Utama (Gambar/Video) */}
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px' }}>Tukar Gambar / Video Utama:</label>
+              <input 
+                type="file" 
+                accept="image/*,video/*"
+                onChange={(e) => uploadFileToSupabase(e.target.files[0], setEditImageUrl, setUploadingMedia)}
+                style={{ marginBottom: '5px', display: 'block', fontSize: '12px' }}
+              />
+              <input 
+                type="text" 
+                value={editImageUrl} 
+                onChange={(e) => setEditImageUrl(e.target.value)}
+                placeholder="Atau masukkan URL media utama..."
+                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #3a3b3c', background: '#242526', color: '#fff', boxSizing: 'border-box' }}
+              />
+              {uploadingMedia && <small style={{ color: '#3b82f6' }}>Sedang memuat naik media baru...</small>}
+            </div>
+
+            {/* Teks First Comment */}
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px' }}>First Comment (Komen Pertama):</label>
+              <textarea 
+                value={editFirstComment} 
+                onChange={(e) => setEditFirstComment(e.target.value)} 
+                style={{ width: '100%', height: '60px', padding: '8px', borderRadius: '6px', border: '1px solid #3a3b3c', background: '#242526', color: '#fff', boxSizing: 'border-box' }}
+                placeholder="Tulis teks komen pertama..."
+              />
+            </div>
+
+            {/* Gambar First Comment */}
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px' }}>Gambar untuk First Comment:</label>
+              <input 
+                type="file" 
+                accept="image/*"
+                onChange={(e) => uploadFileToSupabase(e.target.files[0], setEditCommentImageUrl, setUploadingCommentMedia)}
+                style={{ marginBottom: '5px', display: 'block', fontSize: '12px' }}
+              />
+              <input 
+                type="text" 
+                value={editCommentImageUrl} 
+                onChange={(e) => setEditCommentImageUrl(e.target.value)}
+                placeholder="Atau masukkan URL gambar komen..."
+                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #3a3b3c', background: '#242526', color: '#fff', boxSizing: 'border-box' }}
+              />
+              {uploadingCommentMedia && <small style={{ color: '#3b82f6' }}>Sedang memuat naik gambar komen...</small>}
+            </div>
+
             <div style={{ display: 'flex', gap: '10px' }}>
               <button 
                 type="submit" 
-                disabled={savingEdit}
-                style={{ background: '#198754', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}
+                disabled={savingEdit || uploadingMedia || uploadingCommentMedia}
+                style={{ background: '#198754', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}
               >
                 {savingEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
               </button>
               <button 
                 type="button" 
                 onClick={() => setEditingPost(null)}
-                style={{ background: '#4e4f50', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer' }}
+                style={{ background: '#4e4f50', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer' }}
               >
                 Batal
               </button>
