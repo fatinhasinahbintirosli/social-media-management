@@ -164,7 +164,7 @@ export default function QueuePage() {
   });
 
   return (
-    <main style={{ maxWidth: '900px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
+    <main style={{ maxWidth: '1000px', margin: '40px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       
       {/* Header & Navigasi */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
@@ -251,6 +251,7 @@ export default function QueuePage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', borderRadius: '8px', overflow: 'hidden' }}>
             <thead>
               <tr style={{ background: '#eee', textAlign: 'left' }}>
+                <th style={{ padding: '12px', width: '90px', textAlign: 'center' }}>Media</th>
                 <th style={{ padding: '12px' }}>Mesej</th>
                 <th style={{ padding: '12px' }}>Masa</th>
                 <th style={{ padding: '12px' }}>Status</th>
@@ -259,44 +260,70 @@ export default function QueuePage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="4" style={{ padding: '20px', textAlign: 'center', color: '#777' }}>Memuatkan senarai pos...</td></tr>
+                <tr><td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#777' }}>Memuatkan senarai pos...</td></tr>
               ) : filteredPosts.length === 0 ? (
-                <tr><td colSpan="4" style={{ padding: '20px', textAlign: 'center', color: '#777' }}>Tiada rekod pos untuk profil & pilihan ini.</td></tr>
+                <tr><td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#777' }}>Tiada rekod pos untuk profil & pilihan ini.</td></tr>
               ) : (
-                filteredPosts.map(p => (
-                  <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
-                    <td style={{ padding: '12px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.message || '(Tiada teks)'}</td>
-                    <td style={{ padding: '12px' }}>{p.scheduled_at ? new Date(p.scheduled_at).toLocaleString() : '-'}</td>
-                    <td style={{ padding: '12px' }}>
-                      <span style={{ 
-                        padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold',
-                        backgroundColor: p.status === 'published' ? '#d4edda' : '#fff3cd',
-                        color: p.status === 'published' ? '#155724' : '#856404'
-                      }}>
-                        {p.status ? p.status.toUpperCase() : 'PENDING'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px', textAlign: 'center' }}>
-                      {p.status === 'pending' && (
-                        <button
-                          onClick={() => handleDeleteQueue(p.id)}
-                          style={{
-                            background: '#dc3545',
-                            color: '#fff',
-                            border: 'none',
-                            padding: '6px 12px',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '12px',
-                            fontWeight: 'bold'
-                          }}
-                        >
-                          Padam
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                filteredPosts.map(p => {
+                  const mediaUrl = p.image_url || p.video_url;
+                  const isVideo = p.video_url || (p.image_url && (p.image_url.endsWith('.mp4') || p.image_url.includes('video')));
+
+                  return (
+                    <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
+                      {/* Kolum Paparan Imej / Thumbnail */}
+                      <td style={{ padding: '10px', textAlign: 'center' }}>
+                        {mediaUrl ? (
+                          <div style={{ width: '60px', height: '60px', borderRadius: '6px', overflow: 'hidden', background: '#000', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                            {isVideo ? (
+                              <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#222', color: '#fff', fontSize: '18px' }}>
+                                🎬
+                              </div>
+                            ) : (
+                              <img src={mediaUrl} alt="Thumbnail" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            )}
+                          </div>
+                        ) : (
+                          <div style={{ width: '60px', height: '60px', borderRadius: '6px', background: '#f0f2f5', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', margin: '0 auto', border: '1px dashed #ccc' }}>
+                            Tiada
+                          </div>
+                        )}
+                      </td>
+
+                      <td style={{ padding: '12px', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {p.message || '(Tiada teks)'}
+                      </td>
+                      <td style={{ padding: '12px', whiteSpace: 'nowrap' }}>{p.scheduled_at ? new Date(p.scheduled_at).toLocaleString() : '-'}</td>
+                      <td style={{ padding: '12px' }}>
+                        <span style={{ 
+                          padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold',
+                          backgroundColor: p.status === 'published' ? '#d4edda' : '#fff3cd',
+                          color: p.status === 'published' ? '#155724' : '#856404'
+                        }}>
+                          {p.status ? p.status.toUpperCase() : 'PENDING'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'center' }}>
+                        {p.status === 'pending' && (
+                          <button
+                            onClick={() => handleDeleteQueue(p.id)}
+                            style={{
+                              background: '#dc3545',
+                              color: '#fff',
+                              border: 'none',
+                              padding: '6px 12px',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            Padam
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
