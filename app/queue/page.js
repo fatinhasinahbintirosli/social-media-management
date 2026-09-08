@@ -9,7 +9,6 @@ export default function QueuePage() {
   const [pages, setPages] = useState([]);
   const [profiles, setProfiles] = useState(['Default']);
   
-  // Baca terus dari localStorage semasa inisialisasi state agar sentiasa kekal profil terkini selepas refresh
   const [activeProfile, setActiveProfile] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('fb_scheduler_profile') || 'Default';
@@ -20,6 +19,12 @@ export default function QueuePage() {
   const [selectedPageId, setSelectedPageId] = useState('all');
   const [loading, setLoading] = useState(true);
 
+  // State untuk fungsi Edit Modal / Inline
+  const [editingPost, setEditingPost] = useState(null);
+  const [editMessage, setEditMessage] = useState('');
+  const [editScheduledAt, setEditScheduledAt] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+
   const supabase = useMemo(() => {
     return createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL, 
@@ -27,7 +32,6 @@ export default function QueuePage() {
     );
   }, []);
 
-  // 1. Muat turun senarai profil unik milik user dari database
   useEffect(() => {
     async function loadInitialData() {
       try {
@@ -35,7 +39,6 @@ export default function QueuePage() {
         if (!session) return;
         const currentUserId = session.user.id;
 
-        // Ambil senarai profil unik daripada jadual profiles milik user ini
         const { data: profData } = await supabase
           .from('profiles')
           .select('profile_name')
@@ -45,7 +48,6 @@ export default function QueuePage() {
           const uniqueNames = [...new Set(profData.map(p => p.profile_name))];
           setProfiles(uniqueNames);
           
-          // Pastikan activeProfile sah wujud dalam senarai profil semasa
           const savedProfile = localStorage.getItem('fb_scheduler_profile');
           if (savedProfile && uniqueNames.includes(savedProfile)) {
             setActiveProfile(savedProfile);
@@ -60,7 +62,6 @@ export default function QueuePage() {
     loadInitialData();
   }, [supabase]);
 
-  // 2. Muat turun Pages dan Scheduled Posts setiap kali profil aktif berubah
   useEffect(() => {
     async function fetchData() {
       try {
@@ -72,24 +73,21 @@ export default function QueuePage() {
         }
         const currentUserId = session.user.id;
 
-        // Simpan pilihan profil terkini ke localStorage
         localStorage.setItem('fb_scheduler_profile', activeProfile);
 
-        // Ambil pages milik user ini
         const { data: pData } = await supabase
           .from('pages')
           .select('page_id, page_name')
           .eq('user_id', currentUserId)
           .order('page_name', { ascending: true });
 
-        // Ambil scheduled_posts yang berstatus 'pending' sahaja mengikut profil aktif & user_id
         const { data: sData } = await supabase
           .from('scheduled_posts')
           .select('*')
           .ilike('profile', activeProfile)
           .eq('user_id', currentUserId)
-          .eq('status', 'pending') // Hanya paparkan pos yang menunggu giliran
-          .order('scheduled_at', { ascending: true }); // Susun ikut masa terdekat di atas
+          .eq('status', 'pending')
+          .order('scheduled_at', { ascending: true });
         
         setPages(pData || []);
         setScheduledPosts(sData || []);
@@ -101,40 +99,34 @@ export default function QueuePage() {
     }
     fetchData();
 
-    // 3. Langgan perubahan Realtime dari jadual scheduled_posts secara langsung
     const channel = supabase
       .channel('scheduled-posts-realtime')
       .on(
         'postgres_changes',
         {
-          event: '*', // Dengar semua perubahan (INSERT, UPDATE, DELETE)
+          event: '*',
           schema: 'public',
           table: 'scheduled_posts',
         },
         (payload) => {
           setScheduledPosts((prevItems) => {
             if (payload.eventType === 'UPDATE') {
-              // Jika status berubah bukan 'pending' (cth: published), buang dari senarai queue
               if (payload.new.status && payload.new.status !== 'pending') {
                 return prevItems.filter((item) => item.id !== payload.new.id);
               }
-              // Jika masih pending atau dikemaskini, kemaskini datanya
               return prevItems.map((item) =>
                 item.id === payload.new.id ? payload.new : item
               );
             } else if (payload.eventType === 'INSERT') {
-              // Masukkan item baru ke dalam senarai jika profil sepadan dan status 'pending'
               if (
                 payload.new.profile && 
                 payload.new.profile.toLowerCase() === activeProfile.toLowerCase() &&
                 payload.new.status === 'pending'
               ) {
-                // Masukkan dan susun semula mengikut masa terdekat
                 const updated = [payload.new, ...prevItems];
                 return updated.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
               }
             } else if (payload.eventType === 'DELETE') {
-              // Buang item yang dipadam
               return prevItems.filter((item) => item.id !== payload.old.id);
             }
             return prevItems;
@@ -143,7 +135,6 @@ export default function QueuePage() {
       )
       .subscribe();
 
-    // Bersihkan langganan apabila komponen ditutup atau profil bertukar
     return () => {
       supabase.removeChannel(channel);
     };
@@ -160,14 +151,65 @@ export default function QueuePage() {
 
       if (!res.ok) throw new Error(data.error || 'Gagal memadam pos.');
 
-      alert('Berjaya dipadam!');
       setScheduledPosts((prev) => prev.filter((p) => p.id !== id));
     } catch (err) {
       alert(`Ralat: ${err.message}`);
     }
   };
 
-  // Tapis pos berdasarkan Page yang dipilih dalam dropdown
+  const handleStartEdit = (post) => {
+    setEditingPost(post);
+    setEditMessage(post.message || '');
+    // Format tarikh untuk input datetime-local (YYYY-MM-DDTHH:mm)
+    if (post.scheduled_at) {
+      const d = new Date(post.scheduled_at);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      setEditScheduledAt(`${year}-${month}-${day}T${hours}:${minutes}`);
+    } else {
+      setEditScheduledAt('');
+    }
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editingPost) return;
+
+    setSavingEdit(true);
+    try {
+      const formattedDate = editScheduledAt.endsWith('Z') || editScheduledAt.includes('+') 
+        ? editScheduledAt 
+        : `${editScheduledAt}:00+08:00`;
+
+      const { error } = await supabase
+        .from('scheduled_posts')
+        .update({
+          message: editMessage,
+          scheduled_at: new Date(formattedDate).toISOString()
+        })
+        .eq('id', editingPost.id);
+
+      if (error) throw error;
+
+      // Kemaskini state tempatan
+      setScheduledPosts(prev => prev.map(p => {
+        if (p.id === editingPost.id) {
+          return { ...p, message: editMessage, scheduled_at: new Date(formattedDate).toISOString() };
+        }
+        return p;
+      }).sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at)));
+
+      setEditingPost(null);
+    } catch (err) {
+      alert(`Gagal mengemaskini: ${err.message}`);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const filteredPosts = scheduledPosts.filter((p) => {
     if (selectedPageId === 'all') return true;
     if (!p.page_ids) return false;
@@ -256,6 +298,48 @@ export default function QueuePage() {
         </select>
       </div>
 
+      {/* Modal / Kotak Sunting (Edit) Pos */}
+      {editingPost && (
+        <div style={{ background: '#18191a', color: '#fff', padding: '20px', borderRadius: '10px', border: '1px solid #3a3b3c', marginBottom: '25px', boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
+          <h3 style={{ margin: '0 0 15px 0', color: '#1877f2' }}>✏️ Edit Pos Queue</h3>
+          <form onSubmit={handleSaveEdit}>
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px' }}>Mesej / Kapsyen:</label>
+              <textarea 
+                value={editMessage} 
+                onChange={(e) => setEditMessage(e.target.value)} 
+                style={{ width: '100%', height: '80px', padding: '8px', borderRadius: '6px', border: '1px solid #3a3b3c', background: '#242526', color: '#fff', boxSizing: 'border-box' }}
+              />
+            </div>
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px' }}>Masa Jadual:</label>
+              <input 
+                type="datetime-local" 
+                value={editScheduledAt} 
+                onChange={(e) => setEditScheduledAt(e.target.value)} 
+                style={{ padding: '8px', borderRadius: '6px', border: '1px solid #3a3b3c', background: '#242526', color: '#fff' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button 
+                type="submit" 
+                disabled={savingEdit}
+                style={{ background: '#198754', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}
+              >
+                {savingEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
+              </button>
+              <button 
+                type="button" 
+                onClick={() => setEditingPost(null)}
+                style={{ background: '#4e4f50', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer' }}
+              >
+                Batal
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* Jadual Pos */}
       <section>
         <div style={{ overflowX: 'auto' }}>
@@ -281,14 +365,16 @@ export default function QueuePage() {
 
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
-                      {/* Kolum Paparan Imej / Thumbnail */}
+                      {/* Kolum Paparan Thumbnail Imej / Video Statik */}
                       <td style={{ padding: '10px', textAlign: 'center' }}>
                         {mediaUrl ? (
-                          <div style={{ width: '60px', height: '60px', borderRadius: '6px', overflow: 'hidden', background: '#000', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                          <div style={{ width: '60px', height: '60px', borderRadius: '6px', overflow: 'hidden', background: '#000', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             {isVideo ? (
-                              <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#222', color: '#fff', fontSize: '18px' }}>
-                                🎬
-                              </div>
+                              <video 
+                                src={mediaUrl} 
+                                preload="metadata" 
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                              />
                             ) : (
                               <img src={mediaUrl} alt="Thumbnail" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             )}
@@ -313,21 +399,38 @@ export default function QueuePage() {
                         </span>
                       </td>
                       <td style={{ padding: '12px', textAlign: 'center' }}>
-                        <button
-                          onClick={() => handleDeleteQueue(p.id)}
-                          style={{
-                            background: '#dc3545',
-                            color: '#fff',
-                            border: 'none',
-                            padding: '6px 12px',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '12px',
-                            fontWeight: 'bold'
-                          }}
-                        >
-                          Padam
-                        </button>
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                          <button
+                            onClick={() => handleStartEdit(p)}
+                            style={{
+                              background: '#ffc107',
+                              color: '#000',
+                              border: 'none',
+                              padding: '6px 10px',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteQueue(p.id)}
+                            style={{
+                              background: '#dc3545',
+                              color: '#fff',
+                              border: 'none',
+                              padding: '6px 10px',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            Padam
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
