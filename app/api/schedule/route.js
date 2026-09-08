@@ -61,21 +61,20 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Tiada masa jadual manual yang sah diberikan.' }, { status: 400 });
       }
     } 
-    // Kes 2: Auto-Queue atau Pos Sekarang / Tunggal
+    // Kes 2: Auto-Queue
     else {
       let targetScheduledTime = null;
 
       if (scheduledAt) {
         if (scheduledAt === 'auto-queue') {
-          // 1. Ambil pos 'pending' terakhir untuk user & profil ini
-          const { data: lastPosts } = await supabase
+          // 1. Ambil SEMUA pos 'pending' yang akan datang untuk user & profil ini, disusun secara menaik (ascending)
+          const { data: pendingPosts } = await supabase
             .from('scheduled_posts')
             .select('scheduled_at')
             .eq('status', 'pending')
             .eq('profile', activeProfile)
             .eq('user_id', userId)
-            .order('scheduled_at', { ascending: false })
-            .limit(1);
+            .order('scheduled_at', { ascending: true });
 
           // 2. Ambil tetapan queue model Template Grouping (JSON)
           const { data: queueSettings } = await supabase
@@ -86,30 +85,14 @@ export async function POST(request) {
 
           const nowUTC = new Date();
           const localTimeStr = nowUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
-          let nowLocalDate = new Date(localTimeStr);
-          let baseDate = new Date(nowLocalDate);
+          let baseDate = new Date(localTimeStr);
 
-          if (lastPosts && lastPosts.length > 0 && lastPosts[0].scheduled_at) {
-            const lastDateUTC = new Date(lastPosts[0].scheduled_at);
-            const lastLocalStr = lastDateUTC.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
-            const lastDate = new Date(lastLocalStr);
-            if (!isNaN(lastDate.getTime()) && lastDate > baseDate) {
-              baseDate = lastDate;
-              // Tambah 30 minit dari pos terakhir supaya pos seterusnya jatuh pada slot berikutnya
-              baseDate.setMinutes(baseDate.getMinutes() + 30);
-            }
-          }
-
-          let targetHours = 6; // Default fallback pukul 6:00 pagi
-          let targetMinutes = 0;
-
+          // Kumpul semua slot masa daripada semua tatarajah kumpulan
+          let allSlots = [];
           if (queueSettings && queueSettings.length > 0) {
-            // Kumpul semua slot masa daripada semua tatarajah kumpulan
-            let allSlots = [];
             queueSettings.forEach(setting => {
               if (Array.isArray(setting.time_slots)) {
                 setting.time_slots.forEach(slot => {
-                  // slot mempunyai { time: "06:00", days: [1,2,3,4,5,6,0] }
                   if (slot && slot.time && Array.isArray(slot.days)) {
                     slot.days.forEach(dayIdx => {
                       allSlots.push({ day: dayIdx, time: slot.time });
@@ -118,54 +101,84 @@ export async function POST(request) {
                 });
               }
             });
+          }
 
-            if (allSlots.length > 0) {
-              const parseToMinutes = (t) => {
-                const [h, m] = t.split(':').map(Number);
-                return h * 60 + (m || 0);
-              };
+          const parseToMinutes = (t) => {
+            const [h, m] = t.split(':').map(Number);
+            return h * 60 + (m || 0);
+          };
 
-              let currentDayOfWeek = baseDate.getDay();
-              let baseMinutes = baseDate.getHours() * 60 + baseDate.getMinutes();
+          let foundSlotDate = null;
 
-              // Cari slot pada hari yang sama yang lebih lewat daripada baseMinutes
-              let todaySlots = allSlots
+          // Semak sama ada terdapat slot yang diletakkan dalam masa hadapan (bermula dari masa sekarang)
+          if (allSlots.length > 0) {
+            // Kita semak untuk beberapa hari ke hadapan (maksimum 7 hari) untuk mencari slot kosong pertama
+            let checkDate = new Date(baseDate);
+            
+            for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+              let currentDayOfWeek = checkDate.getDay();
+              let isToday = (dayOffset === 0);
+              let baseMinutes = isToday ? (baseDate.getHours() * 60 + baseDate.getMinutes()) : 0;
+
+              // Ambil semua slot pada hari tersebut dan susun ikut masa pagi ke malam
+              let daySlots = allSlots
                 .filter(s => s.day === currentDayOfWeek)
                 .map(s => ({ ...s, totalMin: parseToMinutes(s.time) }))
                 .sort((a, b) => a.totalMin - b.totalMin);
 
-              let foundSlot = todaySlots.find(s => s.totalMin >= baseMinutes);
+              for (const slot of daySlots) {
+                // Abaikan slot yang sudah lepas untuk hari ini
+                if (isToday && slot.totalMin <= baseMinutes) continue;
 
-              // Jika tiada slot berbaki hari ini, ambil slot paling awal untuk hari esok
-              if (!foundSlot) {
-                baseDate.setDate(baseDate.getDate() + 1);
-                baseDate.setHours(0, 0, 0, 0);
-                const nextDayOfWeek = baseDate.getDay();
+                // Bina tarikh & masa penuh untuk slot ini
+                let candidateDate = new Date(checkDate);
+                const [h, m] = slot.time.split(':').map(Number);
+                candidateDate.setHours(h, m || 0, 0, 0);
 
-                let tomorrowSlots = allSlots
-                  .filter(s => s.day === nextDayOfWeek)
-                  .map(s => ({ ...s, totalMin: parseToMinutes(s.time) }))
-                  .sort((a, b) => a.totalMin - b.totalMin);
+                // Semak sama ada slot ini sudah diambil oleh pos 'pending' yang lain
+                let isOccupied = false;
+                if (pendingPosts && pendingPosts.length > 0) {
+                  isOccupied = pendingPosts.some(post => {
+                    const postDate = new Date(post.scheduled_at);
+                    // Bandingkan beza masa dalam minit (jika kurang daripada 5 minit, anggap slot sudah bertindih/diambil)
+                    return Math.abs(postDate.getTime() - candidateDate.getTime()) < 5 * 60 * 1000;
+                  });
+                }
 
-                foundSlot = tomorrowSlots[0] || allSlots[0];
+                // Jika slot ini KOSONG (tiada pos mendudukinya), pilih slot ini!
+                if (!isOccupied) {
+                  foundSlotDate = candidateDate;
+                  break;
+                }
               }
 
-              if (foundSlot && foundSlot.time) {
-                const [h, m] = foundSlot.time.split(':').map(Number);
-                targetHours = h;
-                targetMinutes = m || 0;
-              }
+              if (foundSlotDate) break;
+
+              // Jika tiada slot kosong pada hari ini, beralih ke hari esok
+              checkDate.setDate(checkDate.getDate() + 1);
+              checkDate.setHours(0, 0, 0, 0);
             }
           }
 
-          baseDate.setHours(targetHours, targetMinutes, 0, 0);
+          // Jika tiada slot kosong dijumpai melalui templat, guna kaedah fallback pos terakhir atau masa sekarang
+          if (!foundSlotDate) {
+            if (pendingPosts && pendingPosts.length > 0) {
+              const lastPostDate = new Date(pendingPosts[pendingPosts.length - 1].scheduled_at);
+              const lastLocalStr = lastPostDate.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' });
+              foundSlotDate = new Date(lastLocalStr);
+              foundSlotDate.setMinutes(foundSlotDate.getMinutes() + 30);
+            } else {
+              foundSlotDate = baseDate;
+              foundSlotDate.setMinutes(foundSlotDate.getMinutes() + 10);
+            }
+          }
 
-          const year = baseDate.getFullYear();
-          const month = String(baseDate.getMonth() + 1).padStart(2, '0');
-          const day = String(baseDate.getDate()).padStart(2, '0');
-          const hours = String(baseDate.getHours()).padStart(2, '0');
-          const minutes = String(baseDate.getMinutes()).padStart(2, '0');
-          const seconds = String(baseDate.getSeconds()).padStart(2, '0');
+          const year = foundSlotDate.getFullYear();
+          const month = String(foundSlotDate.getMonth() + 1).padStart(2, '0');
+          const day = String(foundSlotDate.getDate()).padStart(2, '0');
+          const hours = String(foundSlotDate.getHours()).padStart(2, '0');
+          const minutes = String(foundSlotDate.getMinutes()).padStart(2, '0');
+          const seconds = String(foundSlotDate.getSeconds()).padStart(2, '0');
 
           targetScheduledTime = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+08:00`;
         } else {
@@ -210,7 +223,7 @@ export async function POST(request) {
 export async function DELETE(request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json({ error: 'Kunci Supabase belum ditetapkan.' }, { status: 500 });
