@@ -15,7 +15,6 @@ export default function SchedulerPage() {
 
   const [pages, setPages] = useState([]);
   
-  // Baca terus dari localStorage semasa muat turun awal
   const [selectedPages, setSelectedPages] = useState(() => {
     if (typeof window !== 'undefined') {
       for (let i = 0; i < localStorage.length; i++) {
@@ -34,7 +33,7 @@ export default function SchedulerPage() {
   const [profiles, setProfiles] = useState([]);
   const [message, setMessage] = useState('');
   const [imageUrl, setImageUrl] = useState('');
-  const [thumbnailUrl, setThumbnailUrl] = useState(''); // Tambahan untuk thumbnail video
+  const [thumbnailUrl, setThumbnailUrl] = useState(''); 
   const [commentImageUrl, setCommentImageUrl] = useState('');
   const [firstComment, setFirstComment] = useState('');
   
@@ -271,62 +270,30 @@ export default function SchedulerPage() {
     window.location.href = fbLoginUrl;
   };
 
-  // Fungsi khusus untuk jana thumbnail imej daripada fail video
-  const generateVideoThumbnailBlob = (file) => {
-    return new Promise((resolve) => {
-      const video = document.createElement('video');
-      video.src = URL.createObjectURL(file);
-      video.currentTime = 1; // Ambil bingkai pada saat ke-1
-      video.onloadeddata = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 300; // Resolusi kecil yang menjimatkan egress
-        canvas.height = 300;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob((blob) => {
-          resolve(blob);
-        }, 'image/jpeg', 0.8);
-      };
-      video.onerror = () => resolve(null);
-    });
-  };
-
+  // Fungsi muat naik fail baharu menggunakan API Cloudflare R2 (/api/upload)
   const processAndUploadFile = async (file, setUrlState, setThumbState, setLoadingState) => {
     if (!file) return;
 
     setLoadingState(true);
     try {
-      const fileExt = file.name.split('.').pop();
-      const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2)}`;
-      const fileName = `${uniqueId}.${fileExt}`;
-      
-      const { error } = await supabase.storage
-        .from('post-media')
-        .upload(fileName, file);
+      const formData = new FormData();
+      formData.append('file', file);
 
-      if (error) throw error;
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
 
-      const { data: publicUrlData } = supabase.storage.from('post-media').getPublicUrl(fileName);
-      const mediaUrl = publicUrlData.publicUrl;
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal memuat naik fail.');
+
+      const mediaUrl = data.url;
       setUrlState(mediaUrl);
 
-      // Jika fail adalah video, jana dan muat naik thumbnail ringkas secara automatik
+      const fileExt = file.name.split('.').pop();
       const isFileVideo = file.type.startsWith('video/') || ['mp4', 'mov', 'webm'].includes(fileExt.toLowerCase());
-      if (isFileVideo && setThumbState) {
-        const thumbBlob = await generateVideoThumbnailBlob(file);
-        if (thumbBlob) {
-          const thumbFileName = `thumb_${uniqueId}.jpg`;
-          const { error: thumbError } = await supabase.storage
-            .from('post-media')
-            .upload(thumbFileName, thumbBlob, { contentType: 'image/jpeg' });
-
-          if (!thumbError) {
-            const { data: thumbUrlData } = supabase.storage.from('post-media').getPublicUrl(thumbFileName);
-            setThumbState(thumbUrlData.publicUrl);
-          }
-        }
-      } else if (!isFileVideo && setThumbState) {
-        // Jika imej biasa, thumbnail adalah imej itu sendiri
+      
+      if (setThumbState) {
         setThumbState(mediaUrl);
       }
     } catch (err) {
@@ -419,7 +386,7 @@ export default function SchedulerPage() {
       message,
       imageUrl: finalImageUrl,
       videoUrl: finalVideoUrl,
-      thumbnailUrl: finalThumbnailUrl, // Hantar thumbnail ke backend
+      thumbnailUrl: finalThumbnailUrl,
       firstComment: firstComment || null,
       commentImageUrl: commentImageUrl || null,
       scheduledAt: payloadScheduledAt,
@@ -519,7 +486,6 @@ export default function SchedulerPage() {
   return (
     <main style={{ maxWidth: '1400px', margin: '20px auto', padding: '20px', fontFamily: 'sans-serif' }}>
       
-      {/* Bahagian Profil Dinamik */}
       <div style={{ background: '#e7f3ff', padding: '15px', borderRadius: '10px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <div><strong>👤 Profil Pengguna Semasa:</strong> {currentProfile || 'Tiada Profil'}</div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -647,7 +613,7 @@ export default function SchedulerPage() {
               placeholder="Atau salin/tampal URL gambar/video..." 
               style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} 
             />
-            {mainFileUploading && <small style={{ color: '#0d6efd' }}>Sedang memuat naik fail utama ke storage...</small>}
+            {mainFileUploading && <small style={{ color: '#0d6efd' }}>Sedang memuat naik fail utama ke Cloudflare R2...</small>}
           </div>
 
           <div style={{ marginBottom: '15px' }}>
