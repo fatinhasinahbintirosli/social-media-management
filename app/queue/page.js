@@ -24,6 +24,7 @@ export default function QueuePage() {
   const [editMessage, setEditMessage] = useState('');
   const [editScheduledAt, setEditScheduledAt] = useState('');
   const [editImageUrl, setEditImageUrl] = useState('');
+  const [editThumbnailUrl, setEditThumbnailUrl] = useState('');
   const [editFirstComment, setEditFirstComment] = useState('');
   const [editCommentImageUrl, setEditCommentImageUrl] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
@@ -166,6 +167,7 @@ export default function QueuePage() {
     setEditingPost(post);
     setEditMessage(post.message || '');
     setEditImageUrl(post.image_url || post.video_url || '');
+    setEditThumbnailUrl(post.thumbnail_url || '');
     setEditFirstComment(post.first_comment || '');
     setEditCommentImageUrl(post.comment_image_url || '');
 
@@ -229,6 +231,7 @@ export default function QueuePage() {
         message: editMessage,
         image_url: finalImg,
         video_url: finalVid,
+        thumbnail_url: editThumbnailUrl || finalImg || finalVid,
         first_comment: editFirstComment || null,
         comment_image_url: editCommentImageUrl || null,
         scheduled_at: new Date(formattedDate).toISOString()
@@ -460,24 +463,16 @@ export default function QueuePage() {
                 <tr><td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#777' }}>Tiada pos yang menunggu giliran (pending) untuk profil ini.</td></tr>
               ) : (
                 filteredPosts.map(p => {
-                  const mediaUrl = p.image_url || p.video_url;
-                  const isVideo = p.video_url || (p.image_url && (p.image_url.endsWith('.mp4') || p.image_url.includes('video')));
+                  // Gunakan thumbnail_url jika ada, jika tiada fallback ke image_url
+                  const displayThumb = p.thumbnail_url || p.image_url;
 
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
-                      {/* Kolum Paparan Thumbnail Imej / Video Statik */}
+                      {/* Kolum Paparan Thumbnail Ringan (Menghentikan Egress Video) */}
                       <td style={{ padding: '10px', textAlign: 'center' }}>
-                        {mediaUrl ? (
+                        {displayThumb ? (
                           <div style={{ width: '60px', height: '60px', borderRadius: '6px', overflow: 'hidden', background: '#000', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {isVideo ? (
-                              <video 
-                                src={mediaUrl} 
-                                preload="metadata" 
-                                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                              />
-                            ) : (
-                              <img src={mediaUrl} alt="Thumbnail" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                            )}
+                            <img src={displayThumb} alt="Thumbnail" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                           </div>
                         ) : (
                           <div style={{ width: '60px', height: '60px', borderRadius: '6px', background: '#f0f2f5', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', margin: '0 auto', border: '1px dashed #ccc' }}>
