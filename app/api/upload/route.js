@@ -1,16 +1,7 @@
 import { NextResponse } from 'next/server';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
-// Konfigurasi untuk membenarkan saiz fail yang lebih besar (hingga 50MB)
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '50mb',
-    },
-  },
-};
-
-export const maxDuration = 60; // Tetapkan masa maksimum pelayan memproses fail besar (60 saat)
+export const maxDuration = 60; // Dibenarkan berjalan hingga 60 saat untuk fail besar
 
 const S3 = new S3Client({
   region: 'auto',
@@ -48,6 +39,6 @@ export async function POST(req) {
     return NextResponse.json({ success: true, url: publicUrl });
   } catch (err) {
     console.error('Ralat R2 Upload:', err);
-    return NextResponse.json({ error: err.message || 'Ralat tidak diketahui semasa muat naik.' }, { status: 500 });
+    return NextResponse.json({ error: err.message || 'Ralat pelayan semasa muat naik.' }, { status: 500 });
   }
 }
