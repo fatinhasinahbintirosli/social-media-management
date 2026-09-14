@@ -465,7 +465,13 @@ export default function QueuePage() {
               ) : (
                 filteredPosts.map(p => {
                   const displayThumb = p.thumbnail_url || p.image_url || p.video_url;
-                  const isVideoFile = displayThumb && (displayThumb.toLowerCase().includes('.mp4') || displayThumb.toLowerCase().includes('.mov') || displayThumb.toLowerCase().includes('.webm') || p.video_url);
+                  const isVideoFile = displayThumb && (
+                    displayThumb.toLowerCase().includes('.mp4') || 
+                    displayThumb.toLowerCase().includes('.mov') || 
+                    displayThumb.toLowerCase().includes('.webm') || 
+                    displayThumb.toLowerCase().includes('video') || 
+                    p.video_url
+                  );
 
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
