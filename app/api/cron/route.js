@@ -31,7 +31,6 @@ export async function GET(request) {
     }
 
     for (const item of postsToPublish) {
-      // Kunci pos kepada 'processing'
       const { error: lockError } = await supabase
         .from('scheduled_posts')
         .update({ status: 'processing' })
@@ -60,7 +59,6 @@ export async function GET(request) {
 
       let errorLogs = [];
 
-      // PROSES HANTAR SERENTAK (PARALLEL) UNTUK SEMUA PAGE
       const postPromises = pages.map(async (page) => {
         try {
           let postRes;
@@ -102,7 +100,6 @@ export async function GET(request) {
             return { success: false, log: `${page.page_name}: ${postData.error?.message || 'Gagal pos'}` };
           }
 
-          // Proses First Comment jika ada
           if (item.first_comment || item.comment_image_url) {
             await new Promise((resolve) => setTimeout(resolve, item.video_url ? 4000 : 1000));
             const targetCommentId = postData.post_id || postData.id;
@@ -128,7 +125,6 @@ export async function GET(request) {
         }
       });
 
-      // Tunggu semua page selesai hantar serentak
       const results = await Promise.all(postPromises);
 
       let isMainPostSuccessful = false;
@@ -151,26 +147,24 @@ export async function GET(request) {
         })
         .eq('id', item.id);
 
-      // AUTO-DELETE FAIL DARI SUPABASE STORAGE JIKA BERJAYA
+      // AUTO-DELETE FAIL DARI CLOUDFLARE R2 JIKA BERJAYA
       if (finalStatus === 'published') {
         const mediaToCheck = [item.image_url, item.video_url, item.comment_image_url];
         
         for (const mediaUrl of mediaToCheck) {
-          if (mediaUrl && mediaUrl.includes('supabase.co')) {
+          if (mediaUrl && mediaUrl.includes('r2.dev')) {
             try {
-              const marker = '/post-media/';
-              const markerIndex = mediaUrl.indexOf(marker);
-              
-              if (markerIndex !== -1) {
-                const filePath = mediaUrl.substring(markerIndex + marker.length);
-                const decodedFilePath = decodeURIComponent(filePath);
+              const protocol = request.headers.get('x-forwarded-proto') || 'https';
+              const host = request.headers.get('host') || 'localhost:3000';
+              const baseUrl = `${protocol}://${host}`;
 
-                await supabase.storage
-                  .from('post-media')
-                  .remove([decodedFilePath]);
-              }
+              await fetch(`${baseUrl}/api/delete-file`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fileUrl: mediaUrl }),
+              });
             } catch (delErr) {
-              console.error('Gagal memproses pemadaman fail:', delErr.message);
+              console.error('Gagal memproses pemadaman fail R2:', delErr.message);
             }
           }
         }
