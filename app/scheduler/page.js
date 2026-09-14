@@ -270,28 +270,33 @@ export default function SchedulerPage() {
     window.location.href = fbLoginUrl;
   };
 
-  // Fungsi muat naik fail baharu menggunakan API Cloudflare R2 (/api/upload)
+  // Fungsi muat naik terus ke R2 menggunakan Pre-signed URL (Sokong fail sehingga saiz besar)
   const processAndUploadFile = async (file, setUrlState, setThumbState, setLoadingState) => {
     if (!file) return;
 
     setLoadingState(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const res = await fetch('/api/upload', {
+      // 1. Minta Presigned URL dari API
+      const res = await fetch('/api/r2-presigned', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: file.name, fileType: file.type }),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Gagal memuat naik fail.');
+      if (!res.ok) throw new Error(data.error || 'Gagal mendapatkan pautan muat naik.');
 
-      const mediaUrl = data.url;
+      // 2. Muat naik fail terus ke Cloudflare R2
+      const uploadRes = await fetch(data.uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file,
+      });
+
+      if (!uploadRes.ok) throw new Error('Gagal memuat naik fail terus ke Cloudflare R2.');
+
+      const mediaUrl = data.publicUrl;
       setUrlState(mediaUrl);
-
-      const fileExt = file.name.split('.').pop();
-      const isFileVideo = file.type.startsWith('video/') || ['mp4', 'mov', 'webm'].includes(fileExt.toLowerCase());
       
       if (setThumbState) {
         setThumbState(mediaUrl);
@@ -613,7 +618,7 @@ export default function SchedulerPage() {
               placeholder="Atau salin/tampal URL gambar/video..." 
               style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }} 
             />
-            {mainFileUploading && <small style={{ color: '#0d6efd' }}>Sedang memuat naik fail utama ke Cloudflare R2...</small>}
+            {mainFileUploading && <small style={{ color: '#0d6efd' }}>Sedang memuat naik fail besar ke Cloudflare R2...</small>}
           </div>
 
           <div style={{ marginBottom: '15px' }}>
