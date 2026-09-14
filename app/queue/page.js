@@ -184,21 +184,23 @@ export default function QueuePage() {
     }
   };
 
+  // Fungsi muat naik fail baru menggunakan API Cloudflare R2
   const uploadFileToSupabase = async (file, setUrlFunc, setLoadingFunc) => {
     if (!file) return;
     setLoadingFunc(true);
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
-      
-      const { error } = await supabase.storage
-        .from('post-media')
-        .upload(fileName, file);
+      const formData = new FormData();
+      formData.append('file', file);
 
-      if (error) throw error;
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
 
-      const { data: publicUrlData } = supabase.storage.from('post-media').getPublicUrl(fileName);
-      setUrlFunc(publicUrlData.publicUrl);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal memuat naik fail.');
+
+      setUrlFunc(data.url);
     } catch (err) {
       alert(`Gagal muat naik fail: ${err.message}`);
     } finally {
@@ -376,7 +378,7 @@ export default function QueuePage() {
 
             {/* Tukar Media Utama (Gambar/Video) */}
             <div style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px' }}>Tukar Gambar / Video Utama:</label>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px' }}>Tukar Gambar / Video Utama (Cloudflare R2):</label>
               <input 
                 type="file" 
                 accept="image/*,video/*"
@@ -390,7 +392,7 @@ export default function QueuePage() {
                 placeholder="Atau masukkan URL media utama..."
                 style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #3a3b3c', background: '#242526', color: '#fff', boxSizing: 'border-box' }}
               />
-              {uploadingMedia && <small style={{ color: '#3b82f6' }}>Sedang memuat naik media baru...</small>}
+              {uploadingMedia && <small style={{ color: '#3b82f6' }}>Sedang memuat naik media baru ke R2...</small>}
             </div>
 
             {/* Teks First Comment */}
@@ -420,7 +422,7 @@ export default function QueuePage() {
                 placeholder="Atau masukkan URL gambar komen..."
                 style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #3a3b3c', background: '#242526', color: '#fff', boxSizing: 'border-box' }}
               />
-              {uploadingCommentMedia && <small style={{ color: '#3b82f6' }}>Sedang memuat naik gambar komen...</small>}
+              {uploadingCommentMedia && <small style={{ color: '#3b82f6' }}>Sedang memuat naik gambar komen ke R2...</small>}
             </div>
 
             <div style={{ display: 'flex', gap: '10px' }}>
@@ -463,12 +465,10 @@ export default function QueuePage() {
                 <tr><td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#777' }}>Tiada pos yang menunggu giliran (pending) untuk profil ini.</td></tr>
               ) : (
                 filteredPosts.map(p => {
-                  // Gunakan thumbnail_url jika ada, jika tiada fallback ke image_url
-                  const displayThumb = p.thumbnail_url || p.image_url;
+                  const displayThumb = p.thumbnail_url || p.image_url || p.video_url;
 
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
-                      {/* Kolum Paparan Thumbnail Ringan (Menghentikan Egress Video) */}
                       <td style={{ padding: '10px', textAlign: 'center' }}>
                         {displayThumb ? (
                           <div style={{ width: '60px', height: '60px', borderRadius: '6px', overflow: 'hidden', background: '#000', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
