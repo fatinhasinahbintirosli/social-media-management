@@ -34,6 +34,7 @@ export default function SchedulerPage() {
   const [profiles, setProfiles] = useState([]);
   const [message, setMessage] = useState('');
   const [imageUrl, setImageUrl] = useState('');
+  const [thumbnailUrl, setThumbnailUrl] = useState(''); // Tambahan untuk thumbnail video
   const [commentImageUrl, setCommentImageUrl] = useState('');
   const [firstComment, setFirstComment] = useState('');
   
@@ -270,34 +271,79 @@ export default function SchedulerPage() {
     window.location.href = fbLoginUrl;
   };
 
-  const processAndUploadFile = async (file, setUrlState, setLoadingState) => {
+  // Fungsi khusus untuk jana thumbnail imej daripada fail video
+  const generateVideoThumbnailBlob = (file) => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.src = URL.createObjectURL(file);
+      video.currentTime = 1; // Ambil bingkai pada saat ke-1
+      video.onloadeddata = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 300; // Resolusi kecil yang menjimatkan egress
+        canvas.height = 300;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          resolve(blob);
+        }, 'image/jpeg', 0.8);
+      };
+      video.onerror = () => resolve(null);
+    });
+  };
+
+  const processAndUploadFile = async (file, setUrlState, setThumbState, setLoadingState) => {
     if (!file) return;
 
     setLoadingState(true);
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
-    
-    const { error } = await supabase.storage
-      .from('post-media')
-      .upload(fileName, file);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2)}`;
+      const fileName = `${uniqueId}.${fileExt}`;
+      
+      const { error } = await supabase.storage
+        .from('post-media')
+        .upload(fileName, file);
 
-    if (error) {
-      alert('Gagal memuat naik fail: ' + error.message);
-    } else {
+      if (error) throw error;
+
       const { data: publicUrlData } = supabase.storage.from('post-media').getPublicUrl(fileName);
-      setUrlState(publicUrlData.publicUrl);
+      const mediaUrl = publicUrlData.publicUrl;
+      setUrlState(mediaUrl);
+
+      // Jika fail adalah video, jana dan muat naik thumbnail ringkas secara automatik
+      const isFileVideo = file.type.startsWith('video/') || ['mp4', 'mov', 'webm'].includes(fileExt.toLowerCase());
+      if (isFileVideo && setThumbState) {
+        const thumbBlob = await generateVideoThumbnailBlob(file);
+        if (thumbBlob) {
+          const thumbFileName = `thumb_${uniqueId}.jpg`;
+          const { error: thumbError } = await supabase.storage
+            .from('post-media')
+            .upload(thumbFileName, thumbBlob, { contentType: 'image/jpeg' });
+
+          if (!thumbError) {
+            const { data: thumbUrlData } = supabase.storage.from('post-media').getPublicUrl(thumbFileName);
+            setThumbState(thumbUrlData.publicUrl);
+          }
+        }
+      } else if (!isFileVideo && setThumbState) {
+        // Jika imej biasa, thumbnail adalah imej itu sendiri
+        setThumbState(mediaUrl);
+      }
+    } catch (err) {
+      alert('Gagal memuat naik fail: ' + err.message);
+    } finally {
+      setLoadingState(false);
     }
-    setLoadingState(false);
   };
 
   const handleMainFileUpload = async (e) => {
     const file = e.target.files[0];
-    await processAndUploadFile(file, setImageUrl, setMainFileUploading);
+    await processAndUploadFile(file, setImageUrl, setThumbnailUrl, setMainFileUploading);
   };
 
   const handleCommentFileUpload = async (e) => {
     const file = e.target.files[0];
-    await processAndUploadFile(file, setCommentImageUrl, setCommentFileUploading);
+    await processAndUploadFile(file, setCommentImageUrl, null, setCommentFileUploading);
   };
 
   const handleMainDragOver = (e) => { e.preventDefault(); setIsDraggingMain(true); };
@@ -306,7 +352,7 @@ export default function SchedulerPage() {
     e.preventDefault();
     setIsDraggingMain(false);
     const file = e.dataTransfer.files[0];
-    if (file) await processAndUploadFile(file, setImageUrl, setMainFileUploading);
+    if (file) await processAndUploadFile(file, setImageUrl, setThumbnailUrl, setMainFileUploading);
   };
 
   const handleCommentDragOver = (e) => { e.preventDefault(); setIsDraggingComment(true); };
@@ -315,7 +361,7 @@ export default function SchedulerPage() {
     e.preventDefault();
     setIsDraggingComment(false);
     const file = e.dataTransfer.files[0];
-    if (file) await processAndUploadFile(file, setCommentImageUrl, setCommentFileUploading);
+    if (file) await processAndUploadFile(file, setCommentImageUrl, null, setCommentFileUploading);
   };
 
   const handleAddScheduleField = () => {
@@ -341,6 +387,7 @@ export default function SchedulerPage() {
     
     let finalImageUrl = imageUrl || null;
     let finalVideoUrl = null;
+    let finalThumbnailUrl = thumbnailUrl || null;
 
     if (finalImageUrl) {
       const lowerUrl = finalImageUrl.toLowerCase();
@@ -372,6 +419,7 @@ export default function SchedulerPage() {
       message,
       imageUrl: finalImageUrl,
       videoUrl: finalVideoUrl,
+      thumbnailUrl: finalThumbnailUrl, // Hantar thumbnail ke backend
       firstComment: firstComment || null,
       commentImageUrl: commentImageUrl || null,
       scheduledAt: payloadScheduledAt,
@@ -389,10 +437,9 @@ export default function SchedulerPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      // Notifikasi alert telah dibuang sepenuhnya di sini
-      
       setMessage(''); 
       setImageUrl(''); 
+      setThumbnailUrl('');
       setFirstComment(''); 
       setCommentImageUrl('');
       setManualSchedules(['']);
