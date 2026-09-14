@@ -184,7 +184,6 @@ export default function QueuePage() {
     }
   };
 
-  // Fungsi muat naik fail baru menggunakan API Cloudflare R2
   const uploadFileToSupabase = async (file, setUrlFunc, setLoadingFunc) => {
     if (!file) return;
     setLoadingFunc(true);
@@ -466,13 +465,18 @@ export default function QueuePage() {
               ) : (
                 filteredPosts.map(p => {
                   const displayThumb = p.thumbnail_url || p.image_url || p.video_url;
+                  const isVideoFile = displayThumb && (displayThumb.toLowerCase().includes('.mp4') || displayThumb.toLowerCase().includes('.mov') || displayThumb.toLowerCase().includes('.webm') || p.video_url);
 
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
                       <td style={{ padding: '10px', textAlign: 'center' }}>
                         {displayThumb ? (
-                          <div style={{ width: '60px', height: '60px', borderRadius: '6px', overflow: 'hidden', background: '#000', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <img src={displayThumb} alt="Thumbnail" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <div style={{ width: '60px', height: '60px', borderRadius: '6px', overflow: 'hidden', background: '#111', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {isVideoFile ? (
+                              <video src={displayThumb} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted />
+                            ) : (
+                              <img src={displayThumb} alt="Thumbnail" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            )}
                           </div>
                         ) : (
                           <div style={{ width: '60px', height: '60px', borderRadius: '6px', background: '#f0f2f5', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', margin: '0 auto', border: '1px dashed #ccc' }}>
